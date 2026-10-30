@@ -39,6 +39,8 @@ Mission：`id`、`title`、可空 `entry`、`chapter`、可空 `original_id`。
 | emit | event | 设置事件后 next |
 | wait | event、consume（默认 false）、internal（构建期证明标志） | 事件存在后 next |
 | enter / exit | 跨任务上下文压栈/弹栈 | 唯一显式 next |
+| call | 保存 caller、continuation，跳入 callee | 唯一 call 边 + 唯一 next 返回地址边 |
+| return | 校验当前调用帧并返回 | 显式 return 候选边；实际目标由栈帧决定 |
 | noop | 可选 reason，表现省略信息 | 唯一 next |
 | end | 当前叙事会话结束 | 无出边 |
 | unknown | operation、原始指令通过 source_refs 保留 | 运行时始终阻塞 |
@@ -58,6 +60,16 @@ JSON 包含 `save_schema`、`pack_id`、`pack_version`、`pack_schema`、`langua
 state 包含 `mission`、`node`、`variables`、`events`、`choices`、`context`。
 history 是选择前的 state 快照数组，不包含自身。加载时检查包身份、任务、节点和选择记录。
 写入同目录临时文件并原子替换。不能将存档目标设为正在使用的 StoryPack。
+
+1.1.0 在 state 中添加可选 frames 数组，每帧为 call / mission / return。
+旧 Save Schema 1 中缺少 frames 时视为空栈，因此旧包的旧存档仍可读取。
+新包的内容标识不同，旧存档不能无提示用于重建后的包。
+
+StoryPack Schema 保持 1；包含新节点的包声明 required_capabilities=["call-return-v1"]。
+使用 1.1.0+ 执行此类包，当前读取器拒绝未知能力。无需迁移数据库表，但重建包后需新存档。
+metadata.mission_initial_variables 允许通用的按任务初始化状态。
+imported_at_utc 保留为溯源信息，不改变内容标识；同一 IR 重复构建仍可复现，
+两次重新导入的时间元数据可以不同，不承诺其物理文件逐字节相同。
 
 ## 扩展与升级
 

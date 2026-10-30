@@ -2,6 +2,7 @@ import json
 from typer.testing import CliRunner
 
 from astralogue.cli import app
+from astralogue import __version__
 
 runner = CliRunner()
 
@@ -9,7 +10,7 @@ runner = CliRunner()
 def test_help_version():
     assert runner.invoke(app, ["--help"]).exit_code == 0
     result = runner.invoke(app, ["version"])
-    assert result.exit_code == 0 and "1.0.0" in result.output
+    assert result.exit_code == 0 and __version__ in result.output
 
 
 def test_init(tmp_path, monkeypatch):

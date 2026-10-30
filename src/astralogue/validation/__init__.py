@@ -39,8 +39,8 @@ def validate(bundle: Bundle, lang: str = "CHS") -> dict:
         n = nodes.get(e.source)
         mid = n.mission if n else None
         if n is None or e.target not in nodes: add("missing_target", f"{e.source} → {e.target}", mission=mid, node=e.source)
-        if e.kind not in {"next", "option", "condition"}: add("unknown_edge", e.kind, mission=mid, node=e.source)
-        if n and e.target in nodes and nodes[e.target].mission != mid and n.kind not in {"enter", "exit"}:
+        if e.kind not in {"next", "option", "condition", "call", "return"}: add("unknown_edge", e.kind, mission=mid, node=e.source)
+        if n and e.target in nodes and nodes[e.target].mission != mid and n.kind not in {"enter", "exit", "call", "return"}:
             add("cross_mission_edge", "跨任务跳转需要 enter/exit 节点", mission=mid, node=e.source)
         if e.text is not None and lang not in bundle.texts.get(e.text, {}):
             add("missing_text", f"{e.text}/{lang}", mission=mid, node=e.source)
@@ -66,6 +66,12 @@ def validate(bundle: Bundle, lang: str = "CHS") -> dict:
                     add("ambiguous_condition", "常量条件没有唯一命中", mission=n.mission, node=n.id)
             elif not (len(edges) == 2 and (canonical(edges[0].condition) == canonical({"not": edges[1].condition}) or canonical(edges[1].condition) == canonical({"not": edges[0].condition}))):
                 add("conditional_coverage", "无法证明分支条件互斥且覆盖所有状态", "warning", n.mission, n.id)
+        elif n.kind == "call":
+            if len(edges) != 2 or Counter(e.kind for e in edges) != {"call": 1, "next": 1} or any(e.condition is not None for e in edges):
+                add("invalid_call", "call 需要唯一 call 与 next 边", mission=n.mission, node=n.id)
+        elif n.kind == "return":
+            if not edges or any(e.kind != "return" or e.condition is not None for e in edges):
+                add("invalid_return", "return 需要显式无条件返回候选边", mission=n.mission, node=n.id)
         elif n.kind == "end":
             if edges: add("end_has_edges", "结束节点包含跳转", mission=n.mission, node=n.id)
         elif n.kind != "unknown" and (len(edges) != 1 or edges[0].kind != "next" or edges[0].condition is not None):
@@ -97,7 +103,7 @@ def validate(bundle: Bundle, lang: str = "CHS") -> dict:
             reachable.add(nid)
             queue.extend(e.target for e in outgoing[nid] if e.target in nodes)
         reach_by_mission[m.id] = reachable
-        initial = set(bundle.metadata.get("initial_variables", {}))
+        initial = set(bundle.metadata.get("initial_variables", {})) | set(bundle.metadata.get("mission_initial_variables", {}).get(m.id, {}))
         definitions = {n.data.get("var") for n in nodes.values() if n.kind == "set" and isinstance(n.data.get("var"), str)}
         definite = {nid: (set(initial) if nid == m.entry else initial | definitions) for nid in reachable}
 

@@ -36,7 +36,9 @@ def write_pack(bundle: Bundle, output: Path, report: dict, force: bool = False) 
     for key in ["nodes", "edges", "missions"]: obj[key].sort(key=lambda x: x["id"])
     obj["source_refs"].sort(key=canonical)
     obj["diagnostics"].sort(key=canonical)
-    identity = digest({"schema": SCHEMA_VERSION, "compiler": __version__, "bundle": obj, "validation_language": report["language"]})
+    # Import time is provenance, not a semantic content change.
+    identity_obj = {**obj, "metadata": {k: v for k, v in obj["metadata"].items() if k != "imported_at_utc"}}
+    identity = digest({"schema": SCHEMA_VERSION, "compiler": __version__, "bundle": identity_obj, "validation_language": report["language"]})
     meta = {**bundle.metadata, "pack_id": identity, "pack_version": bundle.metadata.get("version", "1.0.0"),
             "schema_version": SCHEMA_VERSION, "engine_version": __version__, "validation_language": report["language"]}
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +75,8 @@ class StoryPack:
             self.metadata = {r["key"]: json.loads(r["value"]) for r in self.con.execute("SELECT * FROM metadata")}
             if self.metadata.get("schema_version") != version: raise ValueError("Schema 版本元数据不一致")
             if not isinstance(self.metadata.get("pack_id"), str): raise ValueError("缺少数据包标识")
+            if set(self.metadata.get("required_capabilities", [])) - {"call-return-v1"}:
+                raise ValueError("数据包需要当前引擎尚未支持的执行能力")
         except Exception:
             self.close(); raise
 
@@ -93,10 +97,14 @@ class StoryPack:
         if row is None: raise ValueError(f"未知任务: {mid}")
         return dict(row)
 
-    def missions(self, search: str = "", chapter: str | None = None, lang: str = "CHS", status: str | None = None) -> list[dict]:
+    def missions(self, search: str = "", chapter: str | None = None, lang: str = "CHS", status: str | None = None, category: str | None = None) -> list[dict]:
         results = []
         for row in self.con.execute("SELECT * FROM missions ORDER BY id"):
             item = dict(row)
+            label = self.metadata.get("mission_labels", {}).get(item["id"], {})
+            item["category"] = label.get("category", "SESSION")
+            item["scope"] = label.get("scope", "SESSION")
+            if category is not None and item["category"] != category: continue
             if status is not None and item["status"] != status: continue
             item["name"] = self.text(item["title"], lang)
             if (chapter is None or chapter == item["chapter"]) and (search.casefold() in item["name"].casefold() or search in item["id"]): results.append(item)

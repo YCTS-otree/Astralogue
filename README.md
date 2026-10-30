@@ -2,7 +2,55 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.0.0**，StoryPack Schema **1**。
+当前版本 **1.1.0**，StoryPack Schema **1**。
+
+## M5 主线支持的实际边界
+
+已增加按原始分类字段建立的 Mission Manifest、子任务调度、Performance 调用/返回、
+状态和完成事件检查、版本冲突检测及单独的主线覆盖率报告。
+目前**尚未达到完整主线连续播放目标**：公开控制资源缺少 Timeline 本体，
+本机相关资源含 ENCR 块和未完成解码的二进制容器，不能静默跳过其中的文本和控制。
+
+已实测《漩涡止于中心》的真实子任务 100020113：进入演出、两级选择、
+六种组合、共享后续、返回脚本、产生声明的完成事件、存档与回溯。
+这些结果属于子任务片段，不计为完整开拓任务完成。
+
+```powershell
+$env:UV_CACHE_DIR = Join-Path $PWD ".cache\uv"
+uv sync --locked
+
+# 只读调查安装目录；找不到时会查明确的安装注册表位置
+uv run astralogue hsr inspect-install
+# 显式联网获取固定版本任务清单和代表性控制资源；可重试并校验 Git blob 哈希
+uv run astralogue hsr fetch-mainline --proxy http://127.0.0.1:10808
+uv run astralogue hsr manifest --source .\data\raw\hsr-mainline
+uv run astralogue hsr import-mainline --source .\data\raw\hsr-mainline
+uv run astralogue build --source .\data\staging\hsr-mainline.ir.json --output .\data\packs\hsr-mainline.storypack --force
+uv run astralogue hsr coverage --report .\data\mainline-coverage.json
+
+# 主线任务和可单独验证的子任务片段分别列出
+uv run astralogue hsr list
+uv run astralogue hsr list --category TRAILBLAZE_SUBMISSION --search 100020113
+uv run astralogue hsr play --category TRAILBLAZE_SUBMISSION --search 100020113
+uv run astralogue hsr resume
+```
+
+不需要代理时省略 `--proxy`。正常播放不会联网。主线包与列车访客包、存档分别保存：
+`data/packs/hsr-mainline.storypack`、`saves/mainline/`；
+原有 `data/packs/astralogue.storypack` 和 `saves/` 中的旧存档保持可用。
+任务结束回车返回主线菜单；不根据任务编号自动跳到下一任务。
+
+本次已识别 365 条 Type=Main 记录，其中 336 条有标题且未明确隐藏/标为 System；
+有 356 份任务定义、43 条记录取得了部分控制资源。当前被证明完整可执行的命名主线任务为 **0**。
+统计细分、真实子任务证据和下一步问题见 [M5 验证记录](docs/m5-verification.md)。
+不要将已解析台词比例或片段成功数解释为整个主线完成率。
+
+可选补充源：`hsr import-mainline --supplement <明文资源根目录>` 按相同逻辑路径补充资源；
+原始数据、文本或版本冲突会阻塞相应路径。已有 JSON/JSONL/SQLite 先用 `import` 转为 IR，
+再用 `--overlay <IR>` 保留有来源的文本候选；只有可核对的原始文本键和相同来源版本可填补缺失文本，
+不会导入上游丢失控制信息后的猜测连接。
+明文 Timeline 控制图及其索引协议见 [M5 数据源报告](docs/m5-data-sources.md)；
+原生 Unity Timeline 二进制解包尚未实现。
 
 ## 安装与真实剧情体验（PowerShell）
 
@@ -96,6 +144,9 @@ uv run pytest -q tests/test_real_data.py
 # 已获取完整列车访客集合时
 $env:ASTRALOGUE_HSR_BATCH_SOURCE = $env:ASTRALOGUE_HSR_SOURCE
 uv run pytest -q tests/test_hsr_batch.py
+# M5 真实主线子任务测试
+$env:ASTRALOGUE_HSR_MAINLINE_SOURCE = (Resolve-Path .\data\raw\hsr-mainline).Path
+uv run pytest -q tests/test_mainline_real.py
 ```
 
 架构、规范与调查记录见 [docs/architecture.md](docs/architecture.md)、

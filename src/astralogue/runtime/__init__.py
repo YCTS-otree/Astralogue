@@ -63,6 +63,7 @@ class State:
     events: list[str] = field(default_factory=list)
     choices: list[dict] = field(default_factory=list)
     context: list[str] = field(default_factory=list)
+    frames: list[dict[str, str]] = field(default_factory=list)
 
 
 class Runtime:
@@ -74,6 +75,7 @@ class Runtime:
         initial = pack.metadata.get("initial_variables", {})
         if not isinstance(initial, dict): raise ValueError("初始变量必须是对象")
         self.state.variables = deepcopy(initial)
+        self.state.variables.update(deepcopy(pack.metadata.get("mission_initial_variables", {}).get(mission, {})))
         self.history: list[dict] = []
 
     def snapshot(self) -> dict:
@@ -140,6 +142,24 @@ class Runtime:
                     edges = self._eligible(all_edges)
                     if len(edges) != 1: return BlockedEvent(nid, f"条件分支命中 {len(edges)} 个目标", "ambiguous_condition")
                     self._move(edges[0]); continue
+                if n.kind == "call":
+                    edges = self.pack.edges(nid)
+                    calls, continuations = [e for e in edges if e.kind == "call"], [e for e in edges if e.kind == "next"]
+                    if len(edges) != 2 or len(calls) != 1 or len(continuations) != 1 or any(e.condition is not None for e in edges):
+                        raise ValueError("call 需要唯一 call 边和返回地址 next 边")
+                    continuation = self.pack.node(continuations[0].target)
+                    if continuation.mission != self.state.mission: raise ValueError("调用的返回地址必须属于调用者")
+                    target = self.pack.node(calls[0].target)
+                    if len(self.state.frames) >= 128: return BlockedEvent(nid, "调用栈超过上限 128", "call_depth")
+                    self.state.frames.append({"call": nid, "mission": self.state.mission, "return": continuation.id})
+                    self._move(calls[0], True); continue
+                if n.kind == "return":
+                    if not self.state.frames: raise ValueError("return 缺少调用上下文")
+                    frame = self.state.frames[-1]
+                    returns = [e for e in self.pack.edges(nid) if e.kind == "return" and e.target == frame["return"] and e.condition is None]
+                    if len(returns) != 1: raise ValueError("返回地址没有显式 return 边")
+                    if self.pack.node(frame["return"]).mission != frame["mission"]: raise ValueError("返回任务上下文无效")
+                    self._move(returns[0], True); self.state.frames.pop(); continue
                 # Resolve flow before mutating state, so a failed advance can
                 # never repeatedly apply a variable assignment or emit.
                 edge = self._single(nid)
@@ -229,6 +249,13 @@ class Runtime:
             if parsed.node is None or pack.node(parsed.node).mission != parsed.mission: raise ValueError("存档节点与任务不匹配")
             if not isinstance(parsed.variables, dict) or not isinstance(parsed.events, list) or not all(isinstance(x, str) for x in parsed.events): raise ValueError("存档变量或事件无效")
             if not isinstance(parsed.choices, list) or not isinstance(parsed.context, list): raise ValueError("存档执行上下文无效")
+            if not isinstance(parsed.frames, list) or len(parsed.frames) > 128: raise ValueError("存档调用栈无效")
+            for frame in parsed.frames:
+                if not isinstance(frame, dict) or set(frame) != {"call", "mission", "return"} or not all(isinstance(v, str) for v in frame.values()): raise ValueError("存档调用帧无效")
+                call = pack.node(frame["call"])
+                if call.kind != "call" or call.mission != frame["mission"] or not any(e.kind == "next" and e.target == frame["return"] for e in pack.edges(call.id)):
+                    raise ValueError("存档返回地址不属于调用节点")
+                if pack.node(frame["return"]).mission != frame["mission"]: raise ValueError("存档返回任务无效")
             for mid in parsed.context: pack.mission(mid)
             for choice in parsed.choices:
                 if not isinstance(choice, dict) or not any(e.id == choice.get("edge") and e.value == choice.get("value") for e in pack.edges(choice.get("node", ""))): raise ValueError("存档选择记录无效")

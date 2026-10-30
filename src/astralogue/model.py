@@ -9,7 +9,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 IR_VERSION = 1
-KINDS = {"dialogue", "choice", "branch", "set", "emit", "wait", "enter", "exit", "end", "unknown", "noop"}
+KINDS = {"dialogue", "choice", "branch", "set", "emit", "wait", "enter", "exit", "call", "return", "end", "unknown", "noop"}
 
 
 def canonical(value: Any) -> str:

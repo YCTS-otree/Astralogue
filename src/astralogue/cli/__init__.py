@@ -174,7 +174,7 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
                 console.print(event.text, markup=False, soft_wrap=True)
             elif isinstance(event, ChoiceEvent):
                 for i, opt in enumerate(event.options, 1): console.print(f"  {i}. {opt.text}", markup=False)
-            elif isinstance(event, EndEvent): console.print("本会话结束。回车退出，也可 :back 或 :save。", markup=False)
+            elif isinstance(event, EndEvent): console.print("本会话结束。回车返回，也可 :back 或 :save。", markup=False)
             elif isinstance(event, BlockedEvent): console.print(f"剧情暂停 [{event.code}]：{event.reason}", style="yellow", markup=False)
             rt.save(autosave)
         try:
@@ -199,15 +199,15 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
                 if not answer.isdecimal() or not 1 <= int(answer) <= len(event.options): raise ValueError("请输入有效的选项编号")
                 rt.choose(event.options[int(answer) - 1].value); event = None
             elif isinstance(event, DialogueEvent) and answer == "": event = None
-            elif isinstance(event, EndEvent) and answer == "": return
+            elif isinstance(event, EndEvent) and answer == "": return "ended"
             else: console.print("请输入有效操作，:help 查看命令。", markup=False)
         except ValueError as ex: console.print(str(ex), style="yellow", markup=False)
 
 
-def select_mission(sp: StoryPack, search: str, lang: str, status: str) -> str | None:
+def select_mission(sp: StoryPack, search: str, lang: str, status: str, category: str | None = None) -> str | None:
     page = 0
     while True:
-        missions = sp.missions(search=search, lang=lang, status=status)
+        missions = sp.missions(search=search, lang=lang, status=None if status == "ALL" else status, category=category)
         pages = max(1, (len(missions) + 19) // 20)
         page = min(page, pages - 1)
         for i in range(page * 20, min((page + 1) * 20, len(missions))):
@@ -231,17 +231,25 @@ def play(mission: Annotated[str | None, typer.Argument(help="不指定时从会�
          lang: Annotated[str, typer.Option()] = "CHS",
          search: Annotated[str, typer.Option(help="菜单会话名或 ID 筛选")] = "",
          status: Annotated[str, typer.Option(help="菜单完整性筛选；显式会话 ID 不受此筛选限制")] = "RESOLVED",
+         category: Annotated[str | None, typer.Option(help="菜单任务类别筛选")] = None,
          save_file: Annotated[Path, typer.Option()] = DEFAULT_SAVE,
          autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json")):
     """逐句阅读真实剧情并执行分支；全程离线。"""
     with errors(), StoryPack(pack) as sp:
         if mission is None:
-            if status not in {"RESOLVED", "PARTIAL", "BLOCKED"}: raise ValueError("完整性状态无效")
-            mission = select_mission(sp, search, lang.upper(), status)
+            if status not in {"RESOLVED", "PARTIAL", "BLOCKED", "ALL"}: raise ValueError("完整性状态无效")
+            mission = select_mission(sp, search, lang.upper(), status, category)
             if mission is None: return
         m = sp.mission(mission)
         console.print(f"完整性：{m['status']}（状态仅针对该会话）", markup=False)
-        interact(Runtime(sp, mission, lang.upper()), save_file, autosave)
+        label = sp.metadata.get("mission_labels", {}).get(mission, {})
+        if label.get("scope") == "PERFORMANCE_FRAGMENT":
+            console.print("这是主线演出片段入口；未断言原任务的世界前置条件已满足，也不表示完整任务已完成。", markup=False)
+        elif label.get("scope") == "SUBMISSION_FRAGMENT":
+            console.print("这是主线子任务片段入口；前提为该子任务已激活，不表示完整开拓任务已完成。", markup=False)
+        elif label.get("scope") == "MISSION":
+            console.print("主线入口按任务已接取初始化；原游戏 TakeParam 前置世界状态没有被伪造。", markup=False)
+        return interact(Runtime(sp, mission, lang.upper()), save_file, autosave)
 
 
 @app.command()
@@ -249,7 +257,7 @@ def resume(save_file: Annotated[Path, typer.Option(exists=True)] = Path("saves/a
            pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK,
            autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json")):
     """检查存档兼容性，恢复下一句未读剧情及选择历史。"""
-    with errors(), StoryPack(pack) as sp: interact(Runtime.load(sp, save_file), save_file, autosave)
+    with errors(), StoryPack(pack) as sp: return interact(Runtime.load(sp, save_file), save_file, autosave)
 
 
 @app.command()
@@ -260,3 +268,7 @@ def save(output: Annotated[Path, typer.Option()] = DEFAULT_SAVE,
     with errors(), StoryPack(pack) as sp:
         Runtime.load(sp, from_save).save(output)
         console.print(f"已另存：{output}", markup=False)
+
+
+from astralogue.hsr.cli import app as hsr_app
+app.add_typer(hsr_app, name="hsr")

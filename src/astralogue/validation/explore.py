@@ -3,7 +3,7 @@ from collections import deque
 from copy import deepcopy
 
 from astralogue.model import canonical
-from astralogue.runtime import BlockedEvent, ChoiceEvent, EndEvent, Runtime
+from astralogue.runtime import BlockedEvent, ChoiceEvent, DialogueEvent, EndEvent, Runtime
 from astralogue.storypack import StoryPack
 
 
@@ -12,6 +12,7 @@ def explore(pack: StoryPack, mission: str, lang: str = "CHS", max_states: int = 
     queue = deque([Runtime(pack, mission, lang)])
     seen, endings, blocked, choices = set(), [], [], set()
     merged = 0
+    dialogues = set()
     steps = 0
     truncated = False
     while queue:
@@ -26,6 +27,7 @@ def explore(pack: StoryPack, mission: str, lang: str = "CHS", max_states: int = 
                 truncated = True; break
             seen.add(marker); steps += 1
             event = rt.next()
+            if isinstance(event, DialogueEvent): dialogues.add(event.node)
             if isinstance(event, ChoiceEvent):
                 for opt in event.options:
                     choices.add((event.node, opt.value, opt.target))
@@ -42,4 +44,5 @@ def explore(pack: StoryPack, mission: str, lang: str = "CHS", max_states: int = 
             truncated = True; break
     return {"states": len(seen), "steps": steps, "endings": endings, "blocked": blocked, "truncated": truncated,
             "choices_explored": [{"node": n, "value": v, "target": t} for n, v, t in sorted(choices)], "merged_states": merged,
+            "dialogue_nodes": sorted(dialogues),
             "note": "相同执行状态合并；此报告不穷举任意初始变量或原游戏外部事件"}
