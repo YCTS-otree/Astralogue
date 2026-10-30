@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "astralogue"
+version = "1.0.0"
+description = "Offline, extensible interactive narrative engine"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["typer>=0.15,<1", "rich>=13,<15"]
+
+[project.scripts]
+astralogue = "astralogue.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astralogue"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "docs/", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock"]
