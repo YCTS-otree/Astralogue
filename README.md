@@ -2,7 +2,24 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.1.0**，StoryPack Schema **1**。
+当前版本 **1.2.0**，StoryPack Schema **1**。
+
+M5.7 增加构建阶段 AnimeStudio CLI 适配器、受限资源复制/导出、原生对象头与引用图解析。
+已实际读取本机 ENCR 并导出剧情资产，但自定义 Timeline 控制字段尚未恢复，新增完整可玩主线为 0。
+不要把资源导出当作剧情执行成功。详见 [M5.7 实测报告](docs/m57-verification.md)。
+
+```powershell
+# 使用现有环境；工具输入自动复制到 staging，游戏目录保持只读
+.\.venv\Scripts\astralogue.exe hsr native-assets `
+  --executable 'G:\hoyostudio\AnimeStudio-net10-68700c7d885a68a444886bd4b7f7827e77789e12\AnimeStudio.CLI.exe' `
+  --game 'O:\Program Files\miHoYo Launcher\games\Star Rail\Game' `
+  --name my-map --limit 16 --max-mib 128
+# 每次 name 必须唯一；可用 --block 精确指定 Map 中的块，避免重复大范围扫描
+# 定向导出时追加 --export Raw --container 'ds10406010201[.]playable$'
+.\.venv\Scripts\astralogue.exe hsr native-coverage
+# 现有主线片段仍可独立播放（无需游戏安装目录或 AnimeStudio）
+.\.venv\Scripts\astralogue.exe hsr play --category TRAILBLAZE_SUBMISSION --search 100020113
+```
 
 ## M5 主线支持的实际边界
 

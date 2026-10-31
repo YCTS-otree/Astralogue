@@ -9,6 +9,62 @@ PACK = Path("data/packs/hsr-mainline.storypack")
 IR = Path("data/staging/hsr-mainline.ir.json")
 
 
+@app.command("native-coverage")
+def native_asset_coverage(staging: Annotated[Path, typer.Option(exists=True)] = Path("data/staging/animestudio"),
+                          baseline_ir: Annotated[Path, typer.Option(exists=True)] = IR,
+                          output: Annotated[Path, typer.Option()] = Path("data/m57-native-coverage.json")):
+    """Report native recovery stages separately from M5 story execution coverage."""
+    from astralogue.cli import console, errors
+    from .animestudio import native_coverage
+    with errors():
+        report = native_coverage(staging, baseline_ir); write(output, report)
+        console.print(json.dumps({k: v for k, v in report.items() if isinstance(v, (int, str))}, ensure_ascii=False))
+
+
+@app.command("native-assets")
+def native_assets(executable: Annotated[Path, typer.Option(exists=True)],
+                  game: Annotated[Path, typer.Option(exists=True)],
+                  name: Annotated[str, typer.Option()],
+                  staging: Annotated[Path, typer.Option()] = Path("data/staging/animestudio"),
+                  limit: Annotated[int, typer.Option(min=1, max=512)] = 16,
+                  max_mib: Annotated[int, typer.Option(min=1, max=4096)] = 128,
+                  export: Annotated[str | None, typer.Option(help="Raw, Dump or Convert; default builds map")] = None,
+                  container: Annotated[list[str] | None, typer.Option()] = None,
+                  block: Annotated[list[str] | None, typer.Option(help="Exact block basenames from map")] = None):
+    """Bounded native asset recovery. Copies blocks before invoking AnimeStudio."""
+    from astralogue.cli import console, errors
+    from .animestudio import AnimeStudio
+    from .local import inspect_install
+    with errors():
+        version = inspect_install(game, samples=0)["game_version"]
+        if version == "unknown": raise ValueError("Game build version unknown")
+        root = game / "StarRail_Data/StreamingAssets/Asb/Windows"
+        candidates = sorted(root.glob("*.block"))
+        if block:
+            wanted = set(block)
+            candidates = [p for p in candidates if p.name in wanted]
+            if len(candidates) != len(wanted): raise ValueError("Requested block missing")
+        selected, size = [], 0
+        for path in candidates:
+            if len(selected) >= limit: break
+            if size + path.stat().st_size > max_mib * 1024**2: continue
+            selected.append(path); size += path.stat().st_size
+        result = AnimeStudio(executable, game, staging, version).run(
+            selected, name, export=export, containers=container)
+        console.print(json.dumps({k: result[k] for k in ("game_version", "asset_count", "types", "returncode", "timed_out") if k in result}, ensure_ascii=False))
+
+
+@app.command("inspect-native")
+def inspect_native_asset(asset: Annotated[Path, typer.Argument(exists=True)],
+                         output: Annotated[Path, typer.Option()] = Path("data/native-inspection.json")):
+    """Inventory native JSON objects and PPtr references; unknown controls stay blocked."""
+    from astralogue.cli import console, errors
+    from .animestudio import inspect_native
+    with errors():
+        result = inspect_native(asset); write(output, result)
+        console.print(result["diagnostic"])
+
+
 def write(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
