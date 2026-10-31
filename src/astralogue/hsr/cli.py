@@ -9,6 +9,60 @@ PACK = Path("data/packs/hsr-mainline.storypack")
 IR = Path("data/staging/hsr-mainline.ir.json")
 
 
+@app.command("scan-native")
+def scan_native(executable: Annotated[Path, typer.Option(exists=True)],
+                game: Annotated[Path, typer.Option(exists=True)],
+                staging: Annotated[Path, typer.Option()] = Path("data/staging/animestudio"),
+                database: Annotated[Path, typer.Option()] = Path("data/staging/native-index.sqlite"),
+                max_batches: Annotated[int, typer.Option(min=0, max=512)] = 4,
+                batch_mib: Annotated[int, typer.Option(min=1, max=4096)] = 512,
+                inventory_only: Annotated[bool, typer.Option()] = False,
+                retry_failed: Annotated[bool, typer.Option()] = False):
+    """Inventory first, then resume content-verified scans of base and patch blocks."""
+    from astralogue.cli import console, errors
+    from .native_index import NativeIndex
+    from .native_scan import inventory, scan
+    from .local import inspect_install
+    with errors():
+        index = NativeIndex(database)
+        try: initial = inventory(game, index)
+        finally: index.close()
+        write(staging / "m59-inventory.json", initial); console.print(json.dumps(initial))
+        if not inventory_only:
+            version = inspect_install(game, samples=0)["game_version"]
+            result = scan(game, executable, staging, database, version, max_batches, batch_mib, retry_failed)
+            console.print(json.dumps(result))
+
+
+@app.command("native-targets")
+def native_targets(game: Annotated[Path, typer.Option(exists=True)],
+                   baseline_ir: Annotated[Path, typer.Option(exists=True)] = IR,
+                   database: Annotated[Path, typer.Option()] = Path("data/staging/native-index.sqlite"),
+                   cutscene_config: Annotated[Path | None, typer.Option(exists=True)] = None,
+                   output: Annotated[Path, typer.Option()] = Path("data/m59-targets.json")):
+    """Exact, version-checked original-reference lookup; named candidates stay separate."""
+    from astralogue.cli import console, errors
+    from .native_scan import target_report
+    with errors():
+        report = target_report(database, baseline_ir, cutscene_config, game=game); write(output, report)
+        console.print(json.dumps({k:v for k,v in report.items() if isinstance(v,(int,bool))}))
+
+
+@app.command("schedule-native")
+def schedule_native(directory: Annotated[Path, typer.Option(exists=True)],
+                    source: Annotated[Path, typer.Option(exists=True)],
+                    control: Annotated[Path, typer.Option(exists=True)],
+                    output: Annotated[Path, typer.Option()] = Path("data/staging/m59-discussion.ir.json"),
+                    report: Annotated[Path, typer.Option()] = Path("data/m59-discussion-coverage.json")):
+    """Compile native call-boundary scheduling attempts; unverified behavior blocks."""
+    from astralogue.cli import console, errors
+    from .native_scheduler import build
+    with errors():
+        evidence, bundle = build(directory, source, control)
+        bundle.write(output); write(report, evidence)
+        console.print(json.dumps({k:v for k,v in evidence.items() if k in {"timelines", "full_runtime_complete", "structural_parse_errors"}}))
+
+
 @app.command("recover-native")
 def recover_native(manifest: Annotated[Path, typer.Option(exists=True)],
                    source: Annotated[Path, typer.Option(exists=True)],
@@ -154,14 +208,17 @@ def manifest(source: Annotated[Path, typer.Option(exists=True)], output: Annotat
 def import_mainline(source: Annotated[Path, typer.Option(exists=True)], output: Annotated[Path, typer.Option()] = IR,
                     lang: Annotated[str, typer.Option()] = "CHS",
                     supplement: Annotated[list[Path] | None, typer.Option(help="额外明文资源根目录，冲突时阻塞")] = None,
-                    overlay: Annotated[list[Path] | None, typer.Option(help="第三方导入后的 IR，仅作为有来源的补充证据")] = None):
+                    overlay: Annotated[list[Path] | None, typer.Option(help="第三方导入后的 IR，仅作为有来源的补充证据")] = None,
+                    native_ir: Annotated[list[Path] | None, typer.Option(help="版本匹配的预编译原生 Timeline IR，未知行为仍阻塞")] = None):
     """链接主线入口、子任务和 Performance 调用；未知 Timeline 不静默跳过。"""
     from astralogue.cli import console, errors
     from astralogue.compiler.hsr_mainline import MainlineCompiler
     from astralogue.model import Bundle, load_json
     from .fusion import supplement_texts
     with errors():
-        compiler = MainlineCompiler(source, lang.upper(), supplement); bundle = compiler.compile()
+        if any(path.resolve().suffix.lower() != ".json" for path in native_ir or []): raise ValueError("Native IR 必须为 JSON 文件")
+        native = [Bundle.from_dict(load_json(path)) for path in native_ir or []]
+        compiler = MainlineCompiler(source, lang.upper(), supplement, native); bundle = compiler.compile()
         bundle.metadata["source"] = compiler.manifest["source"]
         for path in overlay or []: supplement_texts(bundle, Bundle.from_dict(load_json(path)), path.name)
         bundle.write(output)

@@ -2,7 +2,13 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.3.0**，StoryPack Schema **1**。
+当前版本 **1.4.0**，StoryPack Schema **1**。
+
+M5.9 已完成已知 ASB 目录的 9,457 个块索引，原有 148 条引用精确定位 142 条；
+新增逻辑时钟/显式等待/依赖顺序/返回的通用 IR 预编译器，修复 347 个原生 Track 布局解析错误。
+真实 Discussion 的 440 条 Track、187 个 Clip 均可结构解析；完整 Timeline 调度仍受阻，未宣称完整主线可玩。
+1000202 的原生控制图已通过 `import-mainline --native-ir` 接入原主线编译器，语义未知仍在调用点阻塞。
+详见 [M5.9 实测报告](docs/m59-verification.md)。
 
 M5.8 已实现独立 AnimeStudio 源码扩展的无损导出，核验 15 个 SerializedFile、1,010 个对象；
 从真实 Discussion 样本恢复 26 个台词 ID、Clip 时间及 Timeline/Track/Clip 引用链。

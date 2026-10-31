@@ -42,7 +42,7 @@ class Reader:
         self.pos = end
 
 
-def clip(reader: Reader) -> dict:
+def clip(reader: Reader, *, preserve_nonfinite_aux: bool = False) -> dict:
     start_offset = reader.pos
     if reader.read("i") != 1: raise ValueError("Unsupported TimelineClip version")
     start, clip_in = reader.read("d"), reader.read("d")
@@ -58,17 +58,22 @@ def clip(reader: Reader) -> dict:
     post, pre = reader.read("i"), reader.read("i")
     post_time, pre_time = reader.read("d"), reader.read("d")
     display = reader.string()
-    if not all(math.isfinite(n) for n in (start, clip_in, duration, scale, *ease_blend, post_time, pre_time)):
+    if not all(math.isfinite(n) for n in (start, clip_in, duration, scale)):
+        raise ValueError("Nonfinite clip time")
+    if not preserve_nonfinite_aux and not all(math.isfinite(n) for n in (*ease_blend, post_time, pre_time)):
         raise ValueError("Nonfinite clip time")
     if start < 0 or duration < 0 or scale <= 0 or recordable not in (0, 1): raise ValueError("Invalid clip time/flags")
+    def auxiliary(value):
+        return value if math.isfinite(value) else {"ieee754_le": struct.pack("<d", value).hex(), "semantic": "UNVERIFIED_NONFINITE_SENTINEL"}
     return {"byte_start": start_offset, "byte_end": reader.pos, "start": start, "clip_in": clip_in,
             "duration": duration, "time_scale": scale, "asset": asset, "parent": parent,
-            "ease_blend": ease_blend, "blend_modes": blend_modes, "exposed_parameters": exposed,
+            "ease_blend": [auxiliary(v) for v in ease_blend], "blend_modes": blend_modes, "exposed_parameters": exposed,
             "animation_curves": curves, "recordable": recordable, "post_extrapolation": post,
-            "pre_extrapolation": pre, "post_time": post_time, "pre_time": pre_time, "display_name": display}
+            "pre_extrapolation": pre, "post_time": auxiliary(post_time), "pre_time": auxiliary(pre_time), "display_name": display}
 
 
-def decode(manifest: Path, sentence_ids: set[int]) -> dict:
+def decode(manifest: Path, sentence_ids: set[int], *, track_profile: str = "m58") -> dict:
+    if track_profile not in {"m58", "binding-v2"}: raise ValueError("Unknown native track profile")
     validated = validate_export(manifest); m = validated.pop("manifest_data")
     if m.get("unity_version", "").split("\n", 1)[0] != "2019.4.34f1":
         raise ValueError("Native layout not validated for this Unity version")
@@ -112,15 +117,35 @@ def decode(manifest: Path, sentence_ids: set[int]) -> dict:
                 record["unknown_prefix_hex"] = data[offset+4:offset+64].hex()
                 r.pos = offset + 64; record["parent"] = r.pptr()
                 record["children"] = [r.pptr() for _ in range(r.count())]
-                record["unknown_preclips_hex"] = data[r.pos:r.pos+8].hex(); r.pos += 8
-                record["clips"] = [clip(r) for _ in range(r.count())]
+                if track_profile == "binding-v2":
+                    begin = r.pos
+                    record["binding_name"] = r.string()
+                    record["binding_transform_path"] = r.string()
+                    record["unknown_preclips_hex"] = data[begin:r.pos].hex()
+                else:
+                    record["unknown_preclips_hex"] = data[r.pos:r.pos+8].hex(); r.pos += 8
+                record["declared_clip_count"] = r.count()
+                record["clips"] = [clip(r, preserve_nonfinite_aux=track_profile == "binding-v2") for _ in range(record["declared_clip_count"])]
                 for c in record["clips"]:
                     if c["parent"] != {"m_FileID": 0, "m_PathID": pid}: raise ValueError("Clip parent mismatch")
                 record["unknown_tail_hex"] = data[r.pos:].hex()
                 record["layout_status"] = "TRACK_CLIP_FIELDS"
+            if cls == "PauseMarkerClip":
+                if len(data) != offset: raise ValueError("Unrecognized PauseMarkerClip payload")
+                record.update(layout_status="EMPTY_MARKER_PAYLOAD", resume_condition=None)
+            elif cls == "SimpleTalkMarkerClip":
+                r = Reader(data, offset)
+                if len(data)-offset != 28: raise ValueError("Unrecognized SimpleTalkMarkerClip layout")
+                words = [r.read("I") for _ in range(7)]
+                record.update(marker_words=words, marker_sentence_candidate=words[-1] if words[-1] in sentence_ids else None,
+                              layout_status="MARKER_WORDS_UNVERIFIED_SEMANTICS")
             decoded[pid] = record
         except (ValueError, struct.error, UnicodeError) as ex:
             errors.append({"path_id": pid, "class": cls, "reason": str(ex)})
+            if track_profile == "binding-v2":
+                record.update(layout_status="PARTIAL_LAYOUT", parsing_error=str(ex))
+                record.pop("clips", None)
+                decoded[pid] = record
     links, unresolved = [], []
     for pid, record in decoded.items():
         def link(value, field):
@@ -135,4 +160,4 @@ def decode(manifest: Path, sentence_ids: set[int]) -> dict:
         link(record, "")
     return {"serialized_file_id": m["serialized_file_id"], "objects": list(decoded.values()),
             "errors": errors, "links": links, "unresolved": unresolved,
-            "validation": validated, "unknown_control_semantics": True}
+            "validation": validated, "track_profile": track_profile, "unknown_control_semantics": True}

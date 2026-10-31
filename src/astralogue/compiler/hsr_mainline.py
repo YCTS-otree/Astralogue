@@ -22,7 +22,8 @@ def walk(obj: Any):
 
 
 class MainlineCompiler:
-    def __init__(self, root: Path, lang: str = "CHS", supplements: list[Path] | None = None) -> None:
+    def __init__(self, root: Path, lang: str = "CHS", supplements: list[Path] | None = None,
+                 native_bundles: list[Bundle] | None = None) -> None:
         self.sources = Sources([root, *(supplements or [])])
         self.manifest = create_manifest(root, lang)
         self.lang = lang
@@ -50,6 +51,41 @@ class MainlineCompiler:
         self.serial = Counter()
         self.subfragments = []
         self.pending_returns = []
+        self.native_entries = {}
+        for native in native_bundles or []:
+            source = native.metadata.get("source", {})
+            expected = self.manifest["source"]
+            if expected.get("revision") in {None, "unknown"} or source.get("revision") != expected.get("revision") or source.get("game_version") != expected.get("game_version"):
+                raise ResourceError("Native IR 来源版本不匹配")
+            known = {n.id: n for n in native.nodes}
+            for name, target in native.metadata.get("native_timeline_entries", {}).items():
+                if name in self.native_entries: raise ResourceError("Native Timeline 注册冲突")
+                if not isinstance(name, str) or not isinstance(target, dict) or not isinstance(target.get("returns"), list):
+                    raise ResourceError("Native Timeline 注册结构不完整")
+                if target.get("entry") not in known or any(ret not in known or known[ret].kind != "return" for ret in target.get("returns", [])):
+                    raise ResourceError("Native Timeline 入口/返回引用缺失")
+                if target.get("schedule_status") not in {"BLOCKED", "STATICALLY_COMPILED"}:
+                    raise ResourceError("Native Timeline 调度状态未知")
+                self.native_entries[name] = target
+            for key, langs in native.texts.items():
+                if self.lang not in langs: raise ResourceError("Native IR 语言未解析")
+                for lang_name, text in langs.items(): self.b.text(key, text, lang_name)
+            for key, title in native.chapters.items():
+                if key in self.b.chapters and self.b.chapters[key] != title: raise ResourceError("Native chapter 冲突")
+                self.b.chapters[key] = title
+            for node in native.nodes:
+                if node.id in self.nodes: raise ResourceError("Native node 冲突")
+                self.nodes[node.id] = node
+            self.b.nodes.extend(native.nodes); self.b.edges.extend(native.edges); self.b.missions.extend(native.missions)
+            self.b.source_refs.extend(native.source_refs); self.b.diagnostics.extend(native.diagnostics)
+            for mission in native.missions:
+                self.b.metadata["mission_labels"][mission.id] = {"category": "NATIVE_TIMELINE", "scope": "NATIVE_LIBRARY"}
+            for key in ("native_evidence", "logical_clocks"):
+                store = self.b.metadata.setdefault(key, {})
+                for name, record in native.metadata.get(key, {}).items():
+                    if name in store and store[name] != record: raise ResourceError("Native 元数据冲突")
+                    store[name] = record
+        self.b.metadata["native_timeline_entries"] = self.native_entries
 
     def node(self, nid: str, kind: str, data: dict | None = None, text: str | None = None, speaker: str | None = None) -> str:
         if nid in self.nodes: raise ValueError(f"编译器节点冲突: {nid}")
@@ -198,6 +234,12 @@ class MainlineCompiler:
                 self.metric()["timeline_references"].append(rec)
                 try:
                     if not isinstance(name, str) or task.get("Parameters") or set(task) - {"$type", "TimelineName", "Type", "Parameters"}: raise ResourceError("动态 Timeline 参数尚未解析")
+                    if name in self.native_entries:
+                        target = self.native_entries[name]
+                        self.invoke(nid, (target["entry"], target["returns"]), nxt)
+                        rec.update(resolved=True, native_graph_linked=True, native_schedule_status=target["schedule_status"])
+                        if target["schedule_status"] == "BLOCKED": self.diag("native_schedule_blocked", "原生资源已链接，调度语义仍受阻", nid)
+                        continue
                     resolved, _ = self.sources.timeline(name)
                     self.invoke(nid, self.resource(resolved), nxt); rec["resolved"] = True
                 except ResourceError as ex:

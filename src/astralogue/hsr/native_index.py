@@ -10,7 +10,8 @@ from .animestudio import load_map
 class NativeIndex:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, timeout=30)
+        self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript("""
         CREATE TABLE IF NOT EXISTS runs(hash TEXT PRIMARY KEY, path TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS blocks(version TEXT, name TEXT, sha256 TEXT, bytes INTEGER,
@@ -53,8 +54,8 @@ class NativeIndex:
             with self.db:
                 for name, x in sources.items():
                     old = self.db.execute("SELECT sha256 FROM blocks WHERE version=? AND name=?", (version, name)).fetchone()
-                    if old and old[0] != x["sha256"]: raise ValueError("Source block conflict")
-                    self.db.execute("INSERT OR IGNORE INTO blocks VALUES(?,?,?,?)", (version, name, x["sha256"], x["bytes"]))
+                    row_version = version if not old or old[0] == x["sha256"] else version + ":block:" + x["sha256"]
+                    self.db.execute("INSERT OR IGNORE INTO blocks VALUES(?,?,?,?)", (row_version, name, x["sha256"], x["bytes"]))
                 for entry in entries:
                     source = sources[Path(entry["Source"].replace("\\", "/")).name]
                     self.db.execute("INSERT OR IGNORE INTO assets VALUES(?,?,?,?,?,?)", (

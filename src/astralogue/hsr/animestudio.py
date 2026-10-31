@@ -6,7 +6,7 @@ import configparser
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 from typing import Any
@@ -38,16 +38,26 @@ def load_map(path: Path) -> list[dict]:
     return entries
 
 
+def normalize_resource(value: str) -> str:
+    value = value.replace("\\", "/").casefold()
+    while "//" in value: value = value.replace("//", "/")
+    if value.startswith("./"): value = value[2:]
+    if value.startswith("assets/asbres/"): value = value[len("assets/asbres/"):]
+    if ".." in value.split("/") or ":" in value: raise ValueError("Invalid logical resource path")
+    return value
+
+
 def timeline_matches(entries: list[dict], names: list[str]) -> dict[str, list[dict]]:
     """Exact asset basename matching; no substring/ID/order-based links."""
     result = {name: [] for name in names}
+    normalized = {normalize_resource(name): name for name in names}
+    short = {key for key in normalized if "/" not in key}
     for item in entries:
-        candidates = {item["Name"].casefold(), Path(item["Container"].replace("\\", "/")).stem.casefold()}
-        for name in names:
-            logical = name.replace("\\", "/").casefold()
-            container = item["Container"].replace("\\", "/").casefold()
-            if logical in candidates or ("/" in logical and container.endswith("/" + logical)):
-                result[name].append(item)
+        try: container = normalize_resource(item["Container"])
+        except ValueError: continue
+        hits = {item["Name"].casefold(), PurePosixPath(container).stem} & short
+        if container in normalized: hits.add(container)
+        for hit in hits: result[normalized[hit]].append(item)
     return result
 
 
@@ -56,7 +66,8 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
     meta = baseline["metadata"]
     refs = [ref for mission in meta["hsr_metrics"].values() for ref in mission.get("timeline_references", [])]
     names = sorted({ref["name"] for ref in refs if isinstance(ref.get("name"), str)})
-    entries, runs, rejected, blocks = [], [], [], set()
+    asset_count, runs, rejected, blocks = 0, [], [], set()
+    matches = {name: [] for name in names}
     version = meta["source"].get("game_version")
     for path in sorted(staging.glob("*/run.json")):
         record = json.loads(path.read_text(encoding="utf-8"))
@@ -68,9 +79,11 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
         if "--map_op" not in record.get("command", []): continue
         map_path = path.parent / "output/assets_map.json"
         if not map_path.is_file(): continue
-        entries.extend(load_map(map_path))
+        entries = load_map(map_path)
+        asset_count += len(entries)
+        for name, items in timeline_matches(entries, names).items(): matches[name].extend(items)
+        del entries
         blocks.update(item["sha256"] for item in record["inputs"])
-    matches = timeline_matches(entries, names)
     found = {name: items for name, items in matches.items() if items}
     # Exported files are counted separately. No implicit matching by output filename.
     inspections, lossless_files = [], {}
@@ -85,7 +98,7 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
                 inspections.append({k: v for k, v in result.items() if k != "raw"})
     return {"parser": PARSER_VERSION, "baseline_game_version": version,
             "baseline_reference_occurrences": len(refs), "unique_reference_names": len(names),
-            "mapped_blocks": len(blocks), "mapped_asset_entries": len(entries),
+            "mapped_blocks": len(blocks), "mapped_asset_entries": asset_count,
             "located_unique_names": len(found),
             "located_reference_occurrences": sum(ref.get("name") in found for ref in refs),
             "target_resources_exported": 0, "target_control_structures_parsed": 0,
@@ -93,7 +106,7 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
             "missions_unblocked": 0, "matches": matches, "runs": runs, "rejected_runs": rejected,
             "lossless_unique_serialized_files": len(lossless_files), "lossless_objects_verified": sum(lossless_files.values()),
             "exported_json_inspections": inspections,
-            "limitations": ["Sampled block maps are not a full installation index.",
+            "limitations": ["Cached maps require current-installation inventory/hash verification before claiming complete coverage.",
                             "Version equality is necessary, not proof of identical game build.",
                             "Export filenames do not prove object identity; duplicates may be skipped.",
                             "Base-only MonoBehaviour JSON is not recovered script data.",
