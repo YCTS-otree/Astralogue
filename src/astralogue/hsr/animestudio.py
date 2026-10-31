@@ -5,6 +5,7 @@ from collections import Counter
 import configparser
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -72,10 +73,14 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
     matches = timeline_matches(entries, names)
     found = {name: items for name, items in matches.items() if items}
     # Exported files are counted separately. No implicit matching by output filename.
-    inspections = []
+    inspections, lossless_files = [], {}
     for name in runs:
         for path in sorted((staging / name / "output").rglob("*.json")):
-            if path.name != "assets_map.json":
+            if path.name == "manifest.json" and path.parent.parent.name == "lossless":
+                from .lossless import validate_export
+                verified = validate_export(path)
+                lossless_files[verified["serialized_file_id"]] = verified["objects_verified"]
+            elif path.name != "assets_map.json" and "lossless" not in path.relative_to(staging / name / "output").parts:
                 result = inspect_native(path)
                 inspections.append({k: v for k, v in result.items() if k != "raw"})
     return {"parser": PARSER_VERSION, "baseline_game_version": version,
@@ -86,6 +91,7 @@ def native_coverage(staging: Path, baseline_ir: Path) -> dict:
             "target_resources_exported": 0, "target_control_structures_parsed": 0,
             "target_ir_converted": 0, "target_runtime_verified": 0,
             "missions_unblocked": 0, "matches": matches, "runs": runs, "rejected_runs": rejected,
+            "lossless_unique_serialized_files": len(lossless_files), "lossless_objects_verified": sum(lossless_files.values()),
             "exported_json_inspections": inspections,
             "limitations": ["Sampled block maps are not a full installation index.",
                             "Version equality is necessary, not proof of identical game build.",
@@ -110,7 +116,7 @@ class AnimeStudio:
         self.staging.mkdir(parents=True, exist_ok=True)
 
     def run(self, inputs: list[Path], name: str, *, export: str | None = None,
-            containers: list[str] | None = None, timeout: int = 300) -> dict:
+            containers: list[str] | None = None, timeout: int = 300, lossless: bool = False) -> dict:
         if not name or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in name):
             raise ValueError("Invalid run name")
         if export not in {None, "Raw", "Dump", "Convert"}: raise ValueError("Unknown export mode")
@@ -139,14 +145,23 @@ class AnimeStudio:
         if containers: args += ["--containers", *containers]
         record = {"parser": PARSER_VERSION, "game_version": self.version,
                   "tool_sha256": file_hash(self.executable), "inputs": provenance,
-                  "command": args, "started_at": datetime.now(timezone.utc).isoformat()}
+                  "command": args, "lossless": lossless, "started_at": datetime.now(timezone.utc).isoformat()}
+        record["tool_assemblies"] = {name: file_hash(self.executable.parent / "bin" / name)
+                                     for name in ("AnimeStudio.CLI.dll", "AnimeStudio.dll")
+                                     if (self.executable.parent / "bin" / name).is_file()}
         if (self.game / "pkg_version").is_file():
             record["game_manifest_sha256"] = file_hash(self.game / "pkg_version")
         write_json(run / "run.json", record)
         with (run / "tool.log").open("wb") as log:
             try:
+                env = os.environ.copy()
+                env.pop("ASTRALOGUE_LOSSLESS", None)
+                if lossless:
+                    if not (self.executable.parent / "extension-build.json").is_file():
+                        raise ValueError("Lossless extension build metadata missing")
+                    env["ASTRALOGUE_LOSSLESS"] = "1"
                 proc = subprocess.run(args, cwd=run, stdout=log, stderr=subprocess.STDOUT,
-                                      timeout=timeout, check=False)
+                                      timeout=timeout, check=False, env=env)
                 record["returncode"] = proc.returncode
             except subprocess.TimeoutExpired:
                 record["timed_out"] = True
@@ -154,6 +169,12 @@ class AnimeStudio:
         files = [p for p in (run / "output").rglob("*") if p.is_file()]
         record["outputs"] = [{"path": p.relative_to(run).as_posix(), "bytes": p.stat().st_size,
                               "sha256": file_hash(p)} for p in sorted(files)]
+        if lossless:
+            from .lossless import validate_export
+            manifests = list((run / "output/lossless").glob("*/manifest.json"))
+            record["lossless_objects_verified"] = sum(validate_export(p)["objects_verified"] for p in manifests)
+            record["lossless_serialized_files"] = len(manifests)
+            if not manifests: raise ValueError("No lossless manifests; export did not succeed")
         if not export and (run / "output/assets_map.json").is_file():
             entries = load_map(run / "output/assets_map.json")
             record["asset_count"] = len(entries)

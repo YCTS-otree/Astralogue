@@ -9,6 +9,37 @@ PACK = Path("data/packs/hsr-mainline.storypack")
 IR = Path("data/staging/hsr-mainline.ir.json")
 
 
+@app.command("recover-native")
+def recover_native(manifest: Annotated[Path, typer.Option(exists=True)],
+                   source: Annotated[Path, typer.Option(exists=True)],
+                   control: Annotated[Path, typer.Option(exists=True)],
+                   output: Annotated[Path, typer.Option()] = Path("data/staging/native-recovered.ir.json"),
+                   report: Annotated[Path, typer.Option()] = Path("data/m58-native-recovery.json")):
+    """Verify lossless export and trace native dialogue clips; unknown continuation blocks."""
+    from astralogue.cli import console, errors
+    from .native_story import recover, recover_many
+    with errors():
+        evidence, bundle = (recover_many(manifest, source, control) if manifest.is_dir()
+                            else recover(manifest, source, control))
+        bundle.write(output); write(report, evidence)
+        if "reports" in evidence:
+            console.print(f"Verified objects {evidence['objects_verified']}; dialogue clip routes {evidence['verified_dialogue_clips']}; full Timelines complete: 0")
+        else:
+            console.print(f"Verified objects {evidence['validation']['objects_verified']}; dialogue clip routes {len(evidence['dialogue_routes'])}; unknown structures {len(evidence['errors'])}")
+
+
+@app.command("index-native")
+def index_native(staging: Annotated[Path, typer.Option()] = Path("data/staging/animestudio"),
+                 database: Annotated[Path, typer.Option()] = Path("data/staging/native-index.sqlite")):
+    """Persist completed maps once, retaining input content identities."""
+    from astralogue.cli import console, errors
+    from .native_index import NativeIndex
+    with errors():
+        index = NativeIndex(database)
+        try: console.print(json.dumps(index.ingest(staging), ensure_ascii=False))
+        finally: index.close()
+
+
 @app.command("native-coverage")
 def native_asset_coverage(staging: Annotated[Path, typer.Option(exists=True)] = Path("data/staging/animestudio"),
                           baseline_ir: Annotated[Path, typer.Option(exists=True)] = IR,
@@ -30,7 +61,9 @@ def native_assets(executable: Annotated[Path, typer.Option(exists=True)],
                   max_mib: Annotated[int, typer.Option(min=1, max=4096)] = 128,
                   export: Annotated[str | None, typer.Option(help="Raw, Dump or Convert; default builds map")] = None,
                   container: Annotated[list[str] | None, typer.Option()] = None,
-                  block: Annotated[list[str] | None, typer.Option(help="Exact block basenames from map")] = None):
+                  block: Annotated[list[str] | None, typer.Option(help="Exact block basenames from map")] = None,
+                  index_database: Annotated[Path | None, typer.Option(help="Reuse identical indexed blocks for map scans")] = None,
+                  lossless: Annotated[bool, typer.Option(help="Requires the independently built lossless CLI extension")] = False):
     """Bounded native asset recovery. Copies blocks before invoking AnimeStudio."""
     from astralogue.cli import console, errors
     from .animestudio import AnimeStudio
@@ -40,6 +73,12 @@ def native_assets(executable: Annotated[Path, typer.Option(exists=True)],
         if version == "unknown": raise ValueError("Game build version unknown")
         root = game / "StarRail_Data/StreamingAssets/Asb/Windows"
         candidates = sorted(root.glob("*.block"))
+        if index_database is not None and export is None:
+            from .native_index import NativeIndex
+            idx = NativeIndex(index_database)
+            try:
+                idx.ingest(staging); candidates = idx.remaining(candidates)
+            finally: idx.close()
         if block:
             wanted = set(block)
             candidates = [p for p in candidates if p.name in wanted]
@@ -49,8 +88,11 @@ def native_assets(executable: Annotated[Path, typer.Option(exists=True)],
             if len(selected) >= limit: break
             if size + path.stat().st_size > max_mib * 1024**2: continue
             selected.append(path); size += path.stat().st_size
+        if not selected:
+            console.print("No unprocessed blocks within the requested limits")
+            return
         result = AnimeStudio(executable, game, staging, version).run(
-            selected, name, export=export, containers=container)
+            selected, name, export=export, containers=container, lossless=lossless)
         console.print(json.dumps({k: result[k] for k in ("game_version", "asset_count", "types", "returncode", "timed_out") if k in result}, ensure_ascii=False))
 
 

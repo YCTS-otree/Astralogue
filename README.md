@@ -2,11 +2,13 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.2.0**，StoryPack Schema **1**。
+当前版本 **1.3.0**，StoryPack Schema **1**。
 
-M5.7 增加构建阶段 AnimeStudio CLI 适配器、受限资源复制/导出、原生对象头与引用图解析。
-已实际读取本机 ENCR 并导出剧情资产，但自定义 Timeline 控制字段尚未恢复，新增完整可玩主线为 0。
-不要把资源导出当作剧情执行成功。详见 [M5.7 实测报告](docs/m57-verification.md)。
+M5.8 已实现独立 AnimeStudio 源码扩展的无损导出，核验 15 个 SerializedFile、1,010 个对象；
+从真实 Discussion 样本恢复 26 个台词 ID、Clip 时间及 Timeline/Track/Clip 引用链。
+原生台词片段可编译后离线播放，后续未知控制明确阻塞；完整命名主线仍为 0。
+详见 [M5.8 实测报告](docs/m58-verification.md) 与 [外部工具构建说明](tools/animestudio/README.md)。
+历史 [M5.7 报告](docs/m57-verification.md) 保留当时的结果。
 
 ```powershell
 # 使用现有环境；工具输入自动复制到 staging，游戏目录保持只读

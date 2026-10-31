@@ -6,6 +6,7 @@ from pathlib import Path
 import urllib.request
 
 from astralogue.fetch import REPOSITORY, REVISION
+from astralogue.http import verified_opener
 from astralogue.hsr.manifest import create_manifest
 from astralogue.model import canonical, file_hash, load_json
 
@@ -17,7 +18,7 @@ class PublicSnapshot:
     def __init__(self, root: Path, proxy: str | None):
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        self.opener = urllib.request.build_opener(*([urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy else []))
+        self.opener = verified_opener(proxy)
         self.index = {}
         self.failures = []
 
