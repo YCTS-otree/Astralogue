@@ -286,3 +286,6 @@ app.add_typer(patch_app, name="patch")
 from astralogue.archive.cli import app as archive_app, browse
 app.add_typer(archive_app, name='archive')
 app.command('browse')(browse)
+
+from astralogue.adapters.wiki.cli import app as wiki_app
+app.add_typer(wiki_app, name='wiki')

@@ -123,3 +123,15 @@
 ### Notes
 - M7 is partial: complete attribution closure, reviewed-task conversion to Patch and verified Amphoreus sequence recovery remain unfinished.
 - StoryPack and saves retain Schema 1; no changes to Runtime or new game resource scans.
+
+## v1.7.0 - 2026-10-31
+
+### Added
+- Experimental offline Wiki snapshot/tree adapter, conservative normalized English alignment and source-bound review decisions.
+- Reader graph compilation with local CHS text and explicit Wiki evidence; unmatched content blocks.
+- Wiki CLI fetch/parse/align/report/review/build and eight tests, including pinned EN-to-ID-to-CHS catalog roundtrip.
+
+### Notes
+- 183 tests passed. Fandom robots/API/page requests through the local proxy returned 403; direct API timed out.
+- No real Wiki task completion or native Fandom template support is claimed; M8 acceptance remains unfinished.
+- English snapshot verified against the existing pinned Git blob. Runtime, StoryPack and save schemas unchanged.

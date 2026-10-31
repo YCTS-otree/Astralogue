@@ -2,7 +2,7 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.6.0**，StoryPack Schema **1**。
+当前版本 **1.7.0**，StoryPack Schema **1**。
 
 M6 新增独立的文字叙事重建层、Strict / Reader 双入口和 Community Patch Protocol v1。
 Discussion1040601 的 DS104060102 阅读段已验证全部 27 种真实选项组合、26 条正文台词；
@@ -224,3 +224,10 @@ TalkSentence 收录不等于已证明引用，更不等于主线覆盖。未知�
 浏览支持 speaker/chapter/search/mission/category 筛选、n/p 分页、编号查看原始记录/引用/前后边、q 返回。
 中文搜索是精确子串，未使用默认 FTS 分词。档案数据库可单独复制，浏览不需要游戏、AnimeStudio 或构建输入。
 本版尚未完成全来源自动发现、完整归属闭包、已审查任务转 Patch、Browse 内跳转播放器及全部恢复指标。
+
+## M8 实验性 Wiki 对齐
+
+新增 wiki fetch/parse/align/report/review/build，详见 [M8 实测与限制](docs/m8-verification.md)。
+当前 Fandom 经代理访问为 403，直连超时；未完成真实 Wiki 任务验收，未交付 Wiki 对齐剧情包。
+离线工具支持显式结构树、有限 Wikitext、唯一英文匹配及 CHS 映射；HTML 与未知模板阻塞。
+英文输入需与 source 的固定快照 blob 相符。模糊候选须人工审查，Wiki 来源不进入 Strict。
