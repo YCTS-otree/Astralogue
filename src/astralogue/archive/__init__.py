@@ -17,7 +17,7 @@ CREATE INDEX occurrences_text ON occurrences(text_id);
 CREATE INDEX occurrences_mission ON occurrences(mission);
 '''
 
-def build(source, packs, output, force=False):
+def build(source, packs, output, force=False, alignments=None):
     if output.exists() and not force: raise ValueError('档案已存在，需 --force')
     from astralogue.hsr.manifest import create_manifest
     manifest=create_manifest(source); tm=load_json(source/'TextMap/TextMapCHS.json')
@@ -71,9 +71,26 @@ def build(source, packs, output, force=False):
                 rel=info.get('relations',{}).get(e.id)
                 verified=bool(rel and rel.get('verified'))
                 con.execute('INSERT OR IGNORE INTO relations VALUES(?,?,?,?,?)',(digest([e.__dict__,rel]),e.source,e.target,int(verified),canonical({'pack':str(pack),'pack_id':sp.metadata['pack_id'],'edge':e.__dict__,'evidence':rel})))
+    hf_inputs={}
+    for alignment_path in alignments or []:
+        aligned=load_json(alignment_path)
+        if aligned.get('hf_alignment_version')!=1:raise ValueError('Unsupported HF alignment')
+        if aligned['source']['revision']!=version.get('revision'):raise ValueError('Archive/HF game revision conflict')
+        for key,relative in [('chs','TextMap/TextMapCHS.json'),('sentences','ExcelOutput/TalkSentenceConfig.json')]:
+            if aligned['inputs'][key]!=file_hash(source/relative):raise ValueError('Stale HF alignment')
+        provenance=aligned['parsed']['snapshot']['dataset'];hf_inputs[provenance['file']]=provenance
+        prefix='hf-source:'+provenance['sha256']+':'
+        for position,binding in aligned['bindings'].items():
+            sid=binding['selected']
+            if sid is None:continue
+            # Dataset titles are candidates, not verified game task ownership.
+            occurrence(str(sid),None,prefix+position,provenance['file'],{'origin':'HF_DATASET','provenance':provenance,'position':position,'binding':binding,'mission_candidates':aligned['game_evidence']['main_candidates']},'hf_alignment')
+        for relation in aligned['relations']:
+            rid=digest([provenance['sha256'],relation['source_index'],relation['target_index']])
+            con.execute('INSERT OR IGNORE INTO relations VALUES(?,?,?,?,?)',(rid,prefix+'tree/'+str(relation['source_index']),prefix+'tree/'+str(relation['target_index']),0,canonical({'origin':'HF_DATASET','provenance':provenance,'relation':relation,'execution_verified':False})))
     for p in [source/'ExcelOutput/TalkSentenceConfig.json',source/'TextMap/TextMapCHS.json',source/'ExcelOutput/MainMission.json',source/'ExcelOutput/MissionChapterConfig.json']:
         inputs[p.relative_to(source).as_posix()]=file_hash(p)
-    for key,value in {'archive_schema':1,'source':version,'inputs':inputs,'manifest':manifest['denominator'],'scope':'local snapshot, not complete game','textmap_strings':len(tm)}.items():
+    for key,value in {'archive_schema':1,'hf_sources':hf_inputs,'source':version,'inputs':inputs,'manifest':manifest['denominator'],'scope':'local snapshot, not complete game','textmap_strings':len(tm)}.items():
         con.execute('INSERT INTO metadata VALUES(?,?)',(key,canonical(value)))
     con.commit();con.close();temp.replace(output)
     with Archive(output) as a:return a.coverage()

@@ -100,29 +100,31 @@ def review(alignment,decisions):
     return result
 
 
-def build(alignment,source):
+def build(alignment,source,strict=None,namespace="wiki"):
     source=Path(source)
     if not alignment['parsed']['tree']:raise ValueError('Empty wiki scope')
     if file_hash(source/'TextMap/TextMapCHS.json')!=alignment['inputs']['chs'] or file_hash(source/'ExcelOutput/TalkSentenceConfig.json')!=alignment['inputs']['sentences']:raise ValueError('Stale game source')
     rows={str(r['TalkSentenceID']):r for r in load_json(source/'ExcelOutput/TalkSentenceConfig.json') if 'TalkSentenceID' in r};chs=load_json(source/'TextMap/TextMapCHS.json')
-    strict=Bundle(metadata={'version':__version__});strict.text('default-title','Wiki 来源阅读')
-    r=Reconstruction(strict,'wiki:reader',alignment['parsed']['provenance'].get('title') or 'Wiki','wiki:consent');b=r.bundle
-    r.info['entries']={'reader':'wiki:reader'};r.info['wiki_alignment']=alignment
-    r.info['modes']['wiki:reader']['scope']='wiki_recorded_scope'
-    r.node('wiki:end','end',original_game_completion=False)
+    if strict is None:
+        strict=Bundle(metadata={'version':__version__});strict.text('default-title','Wiki 来源阅读')
+    mid=namespace+':reader'
+    r=Reconstruction(strict,mid,alignment['parsed']['provenance'].get('title') or 'Wiki',namespace+':consent');b=r.bundle
+    r.info['entries']={'reader':mid};r.info['wiki_alignment']=alignment
+    r.info['modes'][mid]['scope']='wiki_recorded_scope'
+    r.node(namespace+':end','end',original_game_completion=False)
     def edge(a,z,**kw):return r.edge(a,z,'inferred',{'label':'WIKI_ALIGNED','wiki':alignment['parsed']['provenance']},'wiki_external_order',**kw)
     def line(node,pos,target):
-        binding=alignment['bindings'][pos];sid=binding['selected'];nid='wiki:'+pos
+        binding=alignment['bindings'][pos];sid=binding['selected'];nid=namespace+':'+pos
         if sid is None or str(sid) not in rows:
             r.node(nid,'unknown',operation='UnmatchedWikiDialogue',alignment=binding);return nid
         row=rows[str(sid)];h=str(row['TalkSentenceText']['Hash'])
         if h not in chs:r.node(nid,'unknown',operation='MissingCHSText',talk_sentence_id=sid);return nid
         key=b.text('hsr:text:'+h,chs[h]);speaker=None;name=str(row.get('TextmapTalkSentenceName',{}).get('Hash'))
         if name in chs:speaker=b.text('hsr:speaker:'+name,chs[name])
-        b.nodes.append(Node(nid,'wiki:reader','dialogue',key,speaker,{'talk_sentence_id':sid,'alignment_status':binding['status']}));edge(nid,target);return nid
+        b.nodes.append(Node(nid,mid,'dialogue',key,speaker,{'talk_sentence_id':sid,'alignment_status':binding['status']}));edge(nid,target);return nid
     def sequence(nodes,target,prefix='tree'):
         for i in range(len(nodes)-1,-1,-1):
-            n=nodes[i];pos=prefix+'/'+str(i);nid='wiki:'+pos;kind=n.get('type')
+            n=nodes[i];pos=prefix+'/'+str(i);nid=namespace+':'+pos;kind=n.get('type')
             if kind=='dialogue':target=line(n,pos,target)
             elif kind=='choice':
                 r.node(nid,'choice',reader_action='wiki_choice',reader_message='Wiki 来源选项结构，非 GAME_VERIFIED')
@@ -140,8 +142,8 @@ def build(alignment,source):
                 r.confirm(nid,target,'Wiki 场景说明（外部资料）：'+n.get('text',''),action='wiki_narration');target=nid
             else:r.node(nid,'unknown',operation='UnsupportedWikiStructure',raw=n);target=nid
         return target
-    entry=sequence(alignment['parsed']['tree'],'wiki:end')
-    r.confirm('wiki:consent',entry,'采用 Wiki 来源顺序，仅表示所记录范围；原文来自游戏 CHS，不证明完整任务',action='wiki_consent')
+    entry=sequence(alignment['parsed']['tree'],namespace+':end')
+    r.confirm(namespace+':consent',entry,'采用 Wiki 来源顺序，仅表示所记录范围；原文来自游戏 CHS，不证明完整任务',action='wiki_consent')
     return b
 
 

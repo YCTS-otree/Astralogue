@@ -135,3 +135,25 @@
 - 183 tests passed. Fandom robots/API/page requests through the local proxy returned 403; direct API timed out.
 - No real Wiki task completion or native Fandom template support is claimed; M8 acceptance remains unfinished.
 - English snapshot verified against the existing pinned Git blob. Runtime, StoryPack and save schemas unchanged.
+
+## v1.8.0 - 2026-10-31
+
+### Added
+- Fixed-revision Hugging Face JSON download/cache verification and local import, with no repository script execution or new dependencies.
+- Shared CHS dialogue index, original-control cross-checks and source-bound HF alignment checkpoints with review-only fuzzy candidates.
+- Two real task integrations: 193 distinct aligned IDs, 31 exercised Reader excerpts and 105 net-new HF reading relations; no new GAME_VERIFIED relations.
+- Offline alignment of 100 mission files (87 distinct contents), separate batch reports, Archive evidence import and reproducible PowerShell rebuild tools.
+- Sixteen tests for integrity, ambiguous IDs, conservative order, independent anchors, real data, offline CLI and Archive boundaries; 199 passed.
+
+### Changed
+- M8 graph compilation accepts optional namespaces and an existing Strict bundle while preserving the original graph and text.
+- Dataset-only transitions require explicit audited Reader confirmation; missing transcript context remains separated.
+
+### Fixed
+- Preserved raw text while normalizing explicitly supported typographic differences for lookup.
+- Excluded pre-existing local control and Reader relations from novelty counts and retained duplicate-file aliases in reports.
+
+### Notes
+- StoryPack and saves remain Schema 1; Runtime unchanged. The dataset captures first options and is not complete branch truth.
+- Two complete HF transcript ranges and complete native game missions remain unproven; no ASB rescans or Wiki-origin requests.
+- Raw game text, datasets, generated databases, logs, packs and saves are excluded from source distributions and Git.

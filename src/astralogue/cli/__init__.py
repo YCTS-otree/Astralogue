@@ -165,6 +165,9 @@ HELP = "回车：下一句；选项输入编号；:back 回溯选择；:save [�
 def interact(rt: Runtime, save_path: Path, autosave: Path):
     mode = rt.pack.metadata.get("narrative", {}).get("modes", {}).get(rt.state.mission, {}).get("mode", "strict")
     if mode == "reader":
+        try: title = rt.pack.text(rt.pack.mission(rt.state.mission)["title"], rt.lang)
+        except ValueError: title = rt.state.mission
+        console.print("Reader 范围：" + title, markup=False)
         console.print("Reader 文字投影：确认/人工引导均写入存档；阅读结束不证明原游戏任务或 Strict 完成。", markup=False)
     console.print(HELP, markup=False)
     event = None
@@ -289,3 +292,6 @@ app.command('browse')(browse)
 
 from astralogue.adapters.wiki.cli import app as wiki_app
 app.add_typer(wiki_app, name='wiki')
+
+from astralogue.hsr.hf_cli import app as hf_app
+app.add_typer(hf_app, name='hf')

@@ -2,7 +2,30 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.7.0**，StoryPack Schema **1**。
+当前版本 **1.8.0**，StoryPack Schema **1**。
+
+HF 中文有序转录已接入 M8：两个样本映射到 193 个不同原始 ID，31 个明确范围的 Reader 节选已实跑，
+净新增 105 条 **HF 来源阅读关系**，新增原生控制关系为 0。完整游戏任务仍未证明完成。
+详情见 [HF 实测报告](docs/m8-hf-verification.md)。
+
+```powershell
+uv sync --locked
+# 首次联网：只取两份任务 JSON 与 README；已验证缓存直接复用
+.\.venv\Scripts\astralogue.exe hf fetch --proxy http://127.0.0.1:10808
+# 两样本确认后可获取同一固定提交下其余 missions（不取繁体、续闻或预训练文件）
+.\.venv\Scripts\astralogue.exe hf fetch --all-missions --proxy http://127.0.0.1:10808
+# 此后完全离线重建：需保留既有 hsr-mainline 快照与 hsr-mainline-m59.storypack
+.\tools\rebuild_hf.ps1 -Batch
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/hf-002.storypack
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/hf-001.storypack
+.\.venv\Scripts\astralogue.exe browse --database data/archive-hf.sqlite --search 阿兰
+```
+
+数据截至 3.0 且只转录第一选项，不能当完整分支真值。未知上下文需主动确认；未匹配条目断开为独立节选，
+不会静默跳过后连成完整任务。两个包均保留原主线控制图，可用原任务 ID 进入已有原生分支。
+下载采用固定提交与 SHA256 清单；本机未装 huggingface_hub，使用经 TLS 验证的官方 HTTPS 接口，未新增依赖。
+人工下载后可用 `hf import-local <目录> <40位提交SHA>` 导入两个样本，再用 `hf align` 和 `hf build` 离线处理。
+数据和剧情包不随程序发布；数据集元数据许可证不代表拥有游戏文本的商业再分发许可。
 
 M6 新增独立的文字叙事重建层、Strict / Reader 双入口和 Community Patch Protocol v1。
 Discussion1040601 的 DS104060102 阅读段已验证全部 27 种真实选项组合、26 条正文台词；

@@ -55,3 +55,18 @@ def test_duplicate_pack_import_retains_one_instance(structural_source,tmp_path):
     assert r['graph_instances']==1
     assert r['verified_relations']==0
     with Archive(db) as a:assert a.tasks()[0]['status']=='needs_review'
+
+def test_hf_alignment_archive_extension_keeps_external_edges_unverified(structural_source,tmp_path):
+    import json
+    from astralogue.model import file_hash,load_json
+    path=tmp_path/'aligned.json'
+    doc={'hf_alignment_version':1,'source':{'revision':'test'},'inputs':{'chs':file_hash(structural_source/'TextMap/TextMapCHS.json'),'sentences':file_hash(structural_source/'ExcelOutput/TalkSentenceConfig.json')},'parsed':{'snapshot':{'dataset':{'file':'missions/structural.json','sha256':'a'*64}}},'bindings':{'tree/0':{'selected':1},'tree/1':{'selected':2}},'game_evidence':{'main_candidates':['10']},'relations':[{'source_index':0,'target_index':1,'source_id':1,'target_id':2,'status':'HF_ORDER_ONLY'}]}
+    path.write_text(json.dumps(doc),encoding='utf8');db=tmp_path/'hf.sqlite'
+    build(structural_source,[],db,alignments=[path])
+    with Archive(db) as a:
+        assert a.coverage()['verified_relations']==0
+        detail=a.detail('1');assert any(o['kind']=='hf_alignment' for o in detail['occurrences'])
+        assert any(r['verified']==0 for r in detail['relations'])
+        assert a.meta['hf_sources']['missions/structural.json']['sha256']=='a'*64
+    doc['source']['revision']='stale';path.write_text(json.dumps(doc),encoding='utf8')
+    with pytest.raises(ValueError,match='revision conflict'):build(structural_source,[],tmp_path/'stale.sqlite',alignments=[path])

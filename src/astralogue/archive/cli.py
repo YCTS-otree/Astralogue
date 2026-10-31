@@ -5,9 +5,9 @@ import typer
 from . import Archive, build
 app=typer.Typer(no_args_is_help=True)
 @app.command('build')
-def build_cmd(source:Path, output:Path=Path('data/archive.sqlite'), pack:list[Path]=typer.Option([]), force:bool=False):
+def build_cmd(source:Path, output:Path=Path('data/archive.sqlite'), pack:list[Path]=typer.Option([]), force:bool=False, alignment:list[Path]=typer.Option([])):
     from astralogue.cli import errors
-    with errors():typer.echo(json.dumps(build(source,pack,output,force),ensure_ascii=False))
+    with errors():typer.echo(json.dumps(build(source,pack,output,force,alignment),ensure_ascii=False))
 @app.command()
 def recover(database:Path=Path('data/archive.sqlite'), output:Path=Path('data/archive-tasks.json')):
     with Archive(database) as a:
