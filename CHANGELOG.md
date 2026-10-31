@@ -112,3 +112,14 @@
 ### Notes
 - StoryPack Schema 1 and save Schema 1 retained. Full named mainline missions and fully verified native Timeline execution remain zero.
 - Reused existing native exports/index without new full scans. Pending demo patch is project-authored and is not presented as community-reviewed evidence.
+
+## v1.6.0 - 2026-10-31
+
+### Added
+- Independent SQLite story archive and offline paginated Browse CLI with Chinese substring search, source records and graph adjacency.
+- Source-bound unresolved transition exports and separate archive coverage statistics.
+- Four archive tests, including real source browsing and duplicate import checks; 175 tests passed.
+
+### Notes
+- M7 is partial: complete attribution closure, reviewed-task conversion to Patch and verified Amphoreus sequence recovery remain unfinished.
+- StoryPack and saves retain Schema 1; no changes to Runtime or new game resource scans.

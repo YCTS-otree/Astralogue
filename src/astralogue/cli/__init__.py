@@ -282,3 +282,7 @@ app.add_typer(hsr_app, name="hsr")
 from astralogue.narrative.cli import reader_app, patch_app
 app.add_typer(reader_app, name="reader")
 app.add_typer(patch_app, name="patch")
+
+from astralogue.archive.cli import app as archive_app, browse
+app.add_typer(archive_app, name='archive')
+app.command('browse')(browse)
