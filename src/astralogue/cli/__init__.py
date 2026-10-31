@@ -193,6 +193,10 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
             console.print(f"\n已自动保存：{autosave}", markup=False); return
         try:
             command, _, arg = answer.partition(" ")
+            if command == ":previous" and hasattr(rt, "previous"):
+                rt.previous(); event = None; continue
+            if command == ":progress" and hasattr(rt, "traversal"):
+                console.print(json.dumps(rt.progress(), ensure_ascii=False), markup=False); continue
             if command in {":quit", ":q"}:
                 rt.save(autosave); console.print(f"已自动保存：{autosave}", markup=False); return
             if command in {":help", ":h"}: console.print(HELP, markup=False); continue
@@ -200,7 +204,7 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
                 dest = Path(arg) if arg else save_path
                 rt.save(dest); console.print(f"已保存：{dest}", markup=False); continue
             if command == ":load":
-                rt = Runtime.load(rt.pack, Path(arg) if arg else save_path); event = None; continue
+                rt = load_session(rt.pack, Path(arg) if arg else save_path); event = None; continue
             if command == ":back": rt.back(); event = None; continue
             if command == ":event":
                 if not isinstance(event, BlockedEvent) or event.code != "waiting_event": raise ValueError("只有等待外部事件时可显式注入事件")
@@ -259,7 +263,7 @@ def play(mission: Annotated[str | None, typer.Argument(help="不指定时从会�
             console.print("这是主线子任务片段入口；前提为该子任务已激活，不表示完整开拓任务已完成。", markup=False)
         elif label.get("scope") == "MISSION":
             console.print("主线入口按任务已接取初始化；原游戏 TakeParam 前置世界状态没有被伪造。", markup=False)
-        return interact(Runtime(sp, mission, lang.upper()), save_file, autosave)
+        return interact(session(sp, mission, lang.upper()), save_file, autosave)
 
 
 @app.command()
@@ -267,7 +271,7 @@ def resume(save_file: Annotated[Path, typer.Option(exists=True)] = Path("saves/a
            pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK,
            autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json")):
     """检查存档兼容性，恢复下一句未读剧情及选择历史。"""
-    with errors(), StoryPack(pack) as sp: return interact(Runtime.load(sp, save_file), save_file, autosave)
+    with errors(), StoryPack(pack) as sp: return interact(load_session(sp, save_file), save_file, autosave)
 
 
 @app.command()
@@ -276,7 +280,7 @@ def save(output: Annotated[Path, typer.Option()] = DEFAULT_SAVE,
          pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK):
     """把已验证的自动存档另存；播放时用 :save 保存当前进度。"""
     with errors(), StoryPack(pack) as sp:
-        Runtime.load(sp, from_save).save(output)
+        load_session(sp, from_save).save(output)
         console.print(f"已另存：{output}", markup=False)
 
 
@@ -295,3 +299,7 @@ app.add_typer(wiki_app, name='wiki')
 
 from astralogue.hsr.hf_cli import app as hf_app
 app.add_typer(hf_app, name='hf')
+
+from astralogue.arcs.session import session, load_session
+from astralogue.arcs.cli import app as arcs_app
+app.add_typer(arcs_app, name="arcs")

@@ -157,3 +157,20 @@
 - StoryPack and saves remain Schema 1; Runtime unchanged. The dataset captures first options and is not complete branch truth.
 - Two complete HF transcript ranges and complete native game missions remain unproven; no ASB rescans or Wiki-origin requests.
 - Raw game text, datasets, generated databases, logs, packs and saves are excluded from source distributions and Git.
+
+## v1.9.0 - 2026-11-01
+
+### Added
+- Full prologue Story Arc Reader using declared mission transitions: seven task groups, 16 internal records and all 941 transcript items.
+- One-time source transcript policy, labelled community dialogue/narration/stage directions and explicit version-comparison handling.
+- Native local branch projection preserving three-way and six-path scenes; all 18 full-chapter combinations verified.
+- Arc CLI, per-edge audit, snapshot-based previous/back navigation and resumable chapter sessions without Runtime or StoryPack schema rewrites.
+- Full-chapter verification tool and four regression tests; 203 passed including all previous 199 tests.
+
+### Fixed
+- Distinct choices sharing a target retain the selected edge identity in the chapter audit.
+- Current original-control continuation takes precedence over an obsolete beta wording; original transcript retained as labelled notes.
+
+### Notes
+- Story Arc Reader completion succeeds; native game execution remains unproven. Missing branches outside projected scenes remain disclosed.
+- Full HF source coverage is not a claim of full game text coverage. Raw sources, full logs, saves and StoryPacks remain excluded from Git.

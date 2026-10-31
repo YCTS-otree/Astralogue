@@ -1,6 +1,6 @@
 # Architecture / 架构
 
-版本 1.8.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+版本 1.9.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
 
 ```mermaid
 flowchart LR
@@ -142,3 +142,11 @@ HF 没有完整分支结构，编译时将缺口与非文本边界拆为独立 R
 原控制节点/边/任务/原文逐条保持不变。Wiki 编译器增加可选 Strict 输入及 namespace，默认接口不变。
 新的包只使用原有通用 IR，Runtime 不加载 HF 文件或访问网络。
 Archive 可选导入对齐证据，外部关系不升级为原生已验证关系。
+
+
+## Story Arc Reader
+
+arcs inventory 从正式 Auto/跨章前置和 NextTrackMainMission 建立边界与任务链，不以文件号排序。
+编译层将完整转录、旁白、舞台说明和原生局部分支投影为既有 Dialogue/Choice IR，保留 Strict 原图。
+Source Transcript Policy 一次接受，逐边证据随包保存。ArcSession 只负责 UI 会话审计、快照导航和持久化；
+Runtime 与 SQLite Schema 不变。原生游戏完成、来源转录覆盖和已知局部分支覆盖分别报告。

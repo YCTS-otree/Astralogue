@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "author": "development source review (not community endorsement)",
+  "hf_sha256": "1ef7b1769a816c8b7ceca9c87b7e8fc6f8d7f3f583cb6244888a708ad9580f2e",
+  "control_pack_id": "5a63a18579f2d6e3b35c3a7da2c2a1636e4c4edc57a680d0099d677e1e49bf67",
+  "records": [
+    {
+      "file": "missions/005_模拟宇宙•始发测试.json",
+      "index": 54,
+      "hf_id": 403012203,
+      "previous_id": 403010510,
+      "replacement": 403010516,
+      "notes": [
+        54,
+        55
+      ],
+      "reason": "Current original-control continuation differs by beta-test wording; retain old transcript as explicit comparison notes, not a second in-world event",
+      "evidence": {
+        "source_index": 53,
+        "target_index": 54,
+        "source_id": 403010510,
+        "target_id": 403012203,
+        "status": "POTENTIAL_CONTROL_CONFLICT",
+        "evidence": null,
+        "other_known_targets": [
+          403010516
+        ]
+      }
+    }
+  ]
+}

@@ -2,7 +2,26 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.8.0**，StoryPack Schema **1**。
+当前版本 **1.9.0**，StoryPack Schema **1**。
+
+M9 已完成序章 **「今天是昨天的明天」整章 Reader**：从正式开场到列车出发的章节边界，
+7 个任务段自动衔接，941/941 个来源条目保留；已知原生选择的 18 种组合都能读到章节出口。
+这是标明来源的转录阅读完成，原生 Strict 完成仍未证明。详见 [M9 验证报告](docs/m9-verification.md)。
+
+```powershell
+# 已有项目数据的离线重建；不访问网络、不解包
+.\.venv\Scripts\astralogue.exe arcs build --force
+.\.venv\Scripts\astralogue.exe arcs play
+# 也可用普通 Reader
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/prologue-arc.storypack
+.\.venv\Scripts\astralogue.exe resume --pack data/packs/prologue-arc.storypack --save-file saves/arc/autosave.save.json
+.\.venv\Scripts\astralogue.exe arcs audit saves/arc/autosave.save.json --output data/arc-edge-audit.json
+```
+
+播放中 `:progress` 查看任务进度，`:previous` 返回上一条已访问内容，`:back` 回溯选择，`:save` 保存。
+一次接受 Source Transcript Policy 后普通来源顺序不再逐边确认；玩家记录路径与完整支持的原生局部选项仍交互。
+未匹配原始 ID 的文本保留为“社区转录”，旁白与舞台说明照录，版本差异显示为对照附注。
+下载/对齐方法仍见下文；播放只需要独立 StoryPack，不需要 HF、原始表或游戏安装目录。
 
 HF 中文有序转录已接入 M8：两个样本映射到 193 个不同原始 ID，31 个明确范围的 Reader 节选已实跑，
 净新增 105 条 **HF 来源阅读关系**，新增原生控制关系为 0。完整游戏任务仍未证明完成。
