@@ -1,6 +1,6 @@
 # Architecture / 架构
 
-版本 1.1.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+版本 1.5.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
 
 ```mermaid
 flowchart LR
@@ -113,3 +113,19 @@ Talk 完成需要脚本产生与定义 ParamStr1 对应的事件，并检查 Equ
 `hsr.native_scan` 为构建阶段提供持久化扫描状态与精确资源查询。
 索引使用 WAL 和独立只读快照支持与解析并行；内容变化保留旧版本并重新扫描。
 当前安装的查询绑定包清单、路径、大小和修改时间快照；内容 SHA256 在扫描阶段验证，查询报告明确注明这个边界。
+# M6：证据图与阅读策略
+
+`narrative.Reconstruction` 只依赖通用 Bundle，不依赖 HSR、Unity 或 UI。
+HSR 构建适配器先复用原生调度审计与无损证据，再附加单独命名的 Reader 任务；
+原 Strict 节点、边、字节与诊断保持原值。Reader 不改变任何原始资源。
+
+Reader 的用户确认、轨道选择、未知后继人工引导、同刻人工排序、补丁接受都编译为既有通用
+choice/set/branch/emit 节点。无需扩展 Runtime，也无需修改 SQLite 或存档 Schema。
+原始控制脚本的字面事件监听和 TaskList 内显式顺序可以作为证据边，多个监听序列不能靠数组顺序连接。
+原生 Clip 的静态时间只用于经过主动选择的文字投影，不能当作游戏暂停/并发恢复契约。
+同刻无依赖时由用户选择阅读顺序并记录 visited 状态，不用 PathID 破平局。
+
+`metadata.narrative.relations` 保存证据分类，`policies` 保存非官方阅读策略，`patches` 保存补丁原文和修改前值。
+Strict 与 Reader 分别有入口和范围；Reader 保持 PARTIAL 诊断，阅读结束节点不发出游戏完成事件。
+`Runtime` 的原选择快照支持确认步骤的回溯/保存；UI 可通过 `reader audit` 导出选择到证据的关联。
+社区审核不是官方执行证据，不能覆盖已验证原始关系。协议详见 community-patch-v1.md。

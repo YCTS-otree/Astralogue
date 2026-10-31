@@ -9,6 +9,26 @@ PACK = Path("data/packs/hsr-mainline.storypack")
 IR = Path("data/staging/hsr-mainline.ir.json")
 
 
+@app.command("reconstruct")
+def reconstruct_cmd(directory: Annotated[Path, typer.Option(exists=True)], source: Annotated[Path, typer.Option(exists=True)],
+                    control: Annotated[Path, typer.Option(exists=True)],
+                    output_ir: Annotated[Path, typer.Option()] = Path("data/staging/hsr-reader.ir.json"),
+                    output: Annotated[Path, typer.Option()] = Path("data/packs/hsr-reader.storypack"),
+                    report: Annotated[Path, typer.Option()] = Path("data/m6-reconstruction.json"),
+                    force: Annotated[bool, typer.Option()] = False):
+    """从现有无损导出重建阅读投影；不扫描游戏、不改变 Strict。"""
+    from astralogue.cli import console, errors
+    from astralogue.compiler import compile_story
+    from .reconstruction import reconstruct
+    with errors():
+        if output_ir.exists() and not force: raise ValueError("输出 IR 已存在；使用 --force")
+        result, bundle = reconstruct(directory, source, control)
+        compiled = compile_story(bundle, output, force=force)
+        bundle.write(output_ir); result["pack_id"] = compiled["pack_id"]
+        write(report, result)
+        console.print(json.dumps({k: v for k, v in result.items() if k != "original_option_routes"}, ensure_ascii=False), markup=False)
+
+
 @app.command("scan-native")
 def scan_native(executable: Annotated[Path, typer.Option(exists=True)],
                 game: Annotated[Path, typer.Option(exists=True)],

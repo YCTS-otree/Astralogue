@@ -77,3 +77,15 @@ data / metadata / source_refs.record 为扩展保留空间，例如未来场景�
 首期不解释这些字段。增加改变执行语义的节点、边、条件或表结构必须更新兼容性规则。
 不认识的执行节点始终阻塞，未知 Schema 始终拒绝打开。
 输入哈希目前用于来源核对与全量构建；尚未实现增量依赖调度。
+# M6 兼容扩展
+
+仍使用 Schema 1，无数据库迁移。新增可选 JSON 元数据 `narrative`，含 version=1、modes、entries、
+relations、policies、source_hashes、game/version、raw_control、scope_exclusions 与 patches。
+节点新增可选扩展字段 reader_action、reader_message、native_evidence、completion_scope。
+所有扩展均通过原有 metadata/data JSON 存储；edges 表没有 HSR 专用字段。
+
+已验证的 Strict 数据与 Reader 任务使用不同节点/任务 ID。Reader 仍使用通用节点类型，
+未理解的行为保留原始结构并阻塞，或在明确阅读范围内生成主动确认节点。
+采用文字策略的边不标记为原游戏执行关系已验证。
+补丁只修改 Reader 拷贝，原值、补丁及其证据留在元数据。基础 IR 可重复应用补丁后重建。
+编译器和完整内容参与 pack_id；模式/补丁/图改变后的包拒绝旧存档，存档仍为 Schema 1。

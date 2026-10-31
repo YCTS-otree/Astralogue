@@ -163,6 +163,9 @@ HELP = "回车：下一句；选项输入编号；:back 回溯选择；:save [�
 
 
 def interact(rt: Runtime, save_path: Path, autosave: Path):
+    mode = rt.pack.metadata.get("narrative", {}).get("modes", {}).get(rt.state.mission, {}).get("mode", "strict")
+    if mode == "reader":
+        console.print("Reader 文字投影：确认/人工引导均写入存档；阅读结束不证明原游戏任务或 Strict 完成。", markup=False)
     console.print(HELP, markup=False)
     event = None
     while True:
@@ -173,8 +176,12 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
                 console.print(f"【{event.speaker}】", style="cyan", markup=False)
                 console.print(event.text, markup=False, soft_wrap=True)
             elif isinstance(event, ChoiceEvent):
+                message = rt.pack.node(event.node).data.get("reader_message")
+                if message: console.print("[Reader] " + message, markup=False)
                 for i, opt in enumerate(event.options, 1): console.print(f"  {i}. {opt.text}", markup=False)
-            elif isinstance(event, EndEvent): console.print("本会话结束。回车返回，也可 :back 或 :save。", markup=False)
+            elif isinstance(event, EndEvent):
+                label = "Reader 所选文字阅读段结束；未证明原游戏任务完成。" if mode == "reader" else "本会话结束。"
+                console.print(label + "回车返回，也可 :back 或 :save。", markup=False)
             elif isinstance(event, BlockedEvent): console.print(f"剧情暂停 [{event.code}]：{event.reason}", style="yellow", markup=False)
             rt.save(autosave)
         try:
@@ -272,3 +279,6 @@ def save(output: Annotated[Path, typer.Option()] = DEFAULT_SAVE,
 
 from astralogue.hsr.cli import app as hsr_app
 app.add_typer(hsr_app, name="hsr")
+from astralogue.narrative.cli import reader_app, patch_app
+app.add_typer(reader_app, name="reader")
+app.add_typer(patch_app, name="patch")

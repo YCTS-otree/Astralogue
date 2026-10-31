@@ -96,3 +96,19 @@
 - 额外 Discussion 的 15 个根、440 条 Track、187 个 Clip 可结构解析；15 次 Discussion 和 1 次主线原生调用均受阻，完整 Timeline 和完整命名主线完成数仍为零。
 - 原有 130 项测试保留通过，新增 14 项后实际完整运行 144 passed；100020113 六分支回归继续通过。
 - Schema 与存档版本保持 1；未编造 Marker 恢复事件、轨道激活状态、结束策略或跨任务连接。
+
+## v1.5.0 - 2026-10-31
+
+### Added
+- Independent narrative reconstruction with separate Strict/Reader entry points, evidence categories and explicit text-reading policies.
+- Audited confirmation, track selection, manual guidance and ambiguous-time user ordering using existing generic IR and save history.
+- Community Patch Protocol v1 JSON create/import/validate/apply commands, source/version binding, conflict/cycle checks and reproducible rebuilds.
+- Real DS104060102 verification of all 27 option combinations and 26 body lines; Main1000202/Sub100020111 Reader projection with 17 body lines.
+- Offline playback transcripts, separate Strict/Reader/community coverage and M6 verification tooling; 27 new tests (171 passed total).
+
+### Changed
+- Reader completion is explicitly scoped to selected text segments; original game control evidence, raw assets and Strict behavior remain separate.
+
+### Notes
+- StoryPack Schema 1 and save Schema 1 retained. Full named mainline missions and fully verified native Timeline execution remain zero.
+- Reused existing native exports/index without new full scans. Pending demo patch is project-authored and is not presented as community-reviewed evidence.

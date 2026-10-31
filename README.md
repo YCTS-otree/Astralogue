@@ -2,7 +2,35 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.4.0**，StoryPack Schema **1**。
+当前版本 **1.5.0**，StoryPack Schema **1**。
+
+M6 新增独立的文字叙事重建层、Strict / Reader 双入口和 Community Patch Protocol v1。
+Discussion1040601 的 DS104060102 阅读段已验证全部 27 种真实选项组合、26 条正文台词；
+主线 1000202 的子任务 100020111 可在 Reader 中连续阅读 17 条原生台词。
+Reader 需主动确认未知暂停、轨道选择及返回策略，记录随存档保留；这些结果不计为原生 Timeline
+或完整主线任务完成。Strict 完整命名主线仍为 0。详见 [M6 实测报告](docs/m6-verification.md)
+和 [补丁协议](docs/community-patch-v1.md)。
+
+```powershell
+# 继续使用已有环境；尚未安装本项目时执行
+uv sync --locked
+# 复用已导出的 15 条资源，不重新扫描游戏，不需要运行 AnimeStudio
+.\.venv\Scripts\astralogue.exe hsr reconstruct `
+  --directory data/staging/animestudio/m58-lossless-final/output/lossless `
+  --source data/raw/hsr-mainline --control data/staging/animestudio/reference/DS104060102.json `
+  --output-ir data/staging/m6-discussion.ir.json --output data/packs/hsr-reader.storypack
+# 构建完成后，只需 .storypack；其他构建输入可以移走
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/hsr-reader.storypack --mode reader
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/hsr-reader.storypack --mode strict
+.\.venv\Scripts\astralogue.exe resume --pack data/packs/hsr-reader.storypack --save-file saves/reader/autosave.save.json
+.\.venv\Scripts\astralogue.exe reader audit --pack data/packs/hsr-reader.storypack `
+  --save-file saves/reader/autosave.save.json --output data/reader-audit.json
+```
+
+已有输出需显式加 `--force` 才会替换；旧版本包和存档保持可用。首次取得上游数据和无损导出的方法见下文及历史报告。
+Reader 与普通播放器共用逐句显示、选择、`:save`、`:back` 和恢复；同刻未证明先后的内容由用户明确排序，
+多条文字轨道由用户选择，均不会默认全部激活。后继未知时可以由重建层或补丁暴露标注为非官方的手动引导，
+没有显式目标的未知行为继续阻塞。当前 Reader 只保证所选文字范围，不模拟其他未理解轨道的世界状态。
 
 M5.9 已完成已知 ASB 目录的 9,457 个块索引，原有 148 条引用精确定位 142 条；
 新增逻辑时钟/显式等待/依赖顺序/返回的通用 IR 预编译器，修复 347 个原生 Track 布局解析错误。
@@ -33,8 +61,8 @@ M5.8 已实现独立 AnimeStudio 源码扩展的无损导出，核验 15 个 Ser
 
 已增加按原始分类字段建立的 Mission Manifest、子任务调度、Performance 调用/返回、
 状态和完成事件检查、版本冲突检测及单独的主线覆盖率报告。
-目前**尚未达到完整主线连续播放目标**：公开控制资源缺少 Timeline 本体，
-本机相关资源含 ENCR 块和未完成解码的二进制容器，不能静默跳过其中的文本和控制。
+目前**尚未达到完整主线连续播放目标**：公开控制资源缺少 Timeline 本体；本机 ASB 索引和定向无损导出已打通，
+但大部分已定位的主线资源尚未结构化接入，轨道激活、暂停/恢复及游戏世界状态仍有语义缺口。
 
 已实测《漩涡止于中心》的真实子任务 100020113：进入演出、两级选择、
 六种组合、共享后续、返回脚本、产生声明的完成事件、存档与回溯。
