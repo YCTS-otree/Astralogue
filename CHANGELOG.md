@@ -197,3 +197,20 @@
 ### Notes
 - StoryPack and Save Schema remain 1. Enhanced packs declare reader-player-v1; incompatible old engines reject them rather than silently omitting identity.
 - Strict nodes, edges and texts are preserved. Full prologue Reader succeeds; complete native game execution and remaining branch coverage are still unproven.
+
+## v1.11.0 - 2026-11-01
+
+### Added
+- Local registration/login on default startup and arcs play, with one canonical SQLite progress record per account and automatic continuation.
+- Per-account session locks, revision checks, confirmed-identity protection and rejection of rewritten choice history.
+- One-time legacy file-save import for accounts without progress, preserving original files and pack compatibility checks.
+- Account regression tests and a real offline CLI registration/quit/login/full-prologue verification; 223 tests pass.
+
+### Changed
+- Account mode disables alternate save slots, load/rewind and restarting completed progress; low-level file-save tools remain separate.
+- Automatic checkpoints after visible content and account choices/identity steps are silent unless --debug is enabled.
+- Normal avatar menus omit internal resource IDs.
+
+### Notes
+- Existing StoryPack and Save Schema stay unchanged. Account database Schema 1 is separate, stores salted password hashes, and requires no online service.
+- Existing account progress is not reset when a different or incompatible pack is supplied; cross-pack account upgrades require a future explicit migration.

@@ -28,9 +28,9 @@ def build_cmd(arc_id:str='auto',source:Path=Path('data/raw/hsr-mainline'),datase
         compile_story(b,output,force=force)
         typer.echo(json.dumps(b.metadata['story_arcs'][b.metadata['narrative']['entries']['reader']]['summary'],ensure_ascii=False))
 @app.command('play')
-def play_cmd(pack:Path=Path('data/packs/prologue-player.storypack'),debug:bool=False,save_file:Path=Path('saves/arc/latest.save.json'),autosave:Path=Path('saves/arc/autosave.save.json')):
-    from astralogue.narrative.cli import play
-    return play(pack=pack,mode='reader',save_file=save_file,autosave=autosave,debug=debug)
+def play_cmd(pack:Path=Path('data/packs/prologue-player.storypack'),debug:bool=False,accounts_dir:Path=Path('saves/accounts')):
+    from astralogue.accounts import launch
+    return launch(pack,accounts_dir,debug)
 
 @app.command('audit')
 def audit_cmd(save:Path,pack:Path=Path('data/packs/prologue-player.storypack'),output:Path=Path('data/arc-edge-audit.json')):

@@ -2,7 +2,23 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.10.0**，StoryPack Schema **1**。
+当前版本 **1.11.0**，StoryPack Schema **1**。
+
+直接打开即可注册或登录本地账号：
+
+```powershell
+.\.venv\Scripts\astralogue.exe
+# 也可显式指定入口或开启调试提示
+.\.venv\Scripts\astralogue.exe start
+.\.venv\Scripts\astralogue.exe start --debug
+```
+
+每个账号只有一份持续推进的进度，登录自动继续。每句、小节边界、选项及身份确认都会自动保存，普通模式不提示保存。
+账号内不提供重开、另存、读档回退或回溯改选；载体和代号一经确认即锁定。其他账号独立从头开始。
+账号名与剧情代号是两回事。账号和进度只存本地 `saves/accounts/accounts.sqlite`，不需要网络。
+退出剧情返回账号菜单，可登录另一个账号；同账号不能在两个窗口同时推进。
+现有剧情包可直接使用，本轮无需重新构建；已有账号使用的包请保留，不能覆盖成其他包后自动重置进度。
+账号规则、旧档导入和验证记录见 [本地账号文档](docs/accounts.md)。
 
 序章现在支持剧情内选择「星／穹」、二次确认与中文代号；身份、变量、历史和来源审计随原存档保存。
 BWIKI 补足卡芙卡的三组选项及《漩涡止于中心》的三组遗漏选项；两处询问对话根据原脚本恢复返回菜单和隐藏已选项。
@@ -14,18 +30,18 @@ M9 已完成序章 **「今天是昨天的明天」整章 Reader**：从正式�
 这是标明来源的转录阅读完成，原生 Strict 完成仍未证明。详见 [M9 验证报告](docs/m9-verification.md)。
 
 ```powershell
-# 本机已缓存本轮两个 BWIKI 页面及同版 AvatarConfig，可直接离线构建
+# 构建工具：仅首次准备数据包时使用；已有账号不要覆盖其绑定的包
 .\.venv\Scripts\astralogue.exe arcs build --force
 .\.venv\Scripts\astralogue.exe arcs play
 # 需要查看来源、证据与调试说明时
 .\.venv\Scripts\astralogue.exe arcs play --debug
-# 也可用普通 Reader
+# 以下为旧文件存档/开发工具入口，不操作账号进度
 .\.venv\Scripts\astralogue.exe reader play --pack data/packs/prologue-player.storypack
 .\.venv\Scripts\astralogue.exe resume --pack data/packs/prologue-player.storypack --save-file saves/arc/autosave.save.json
 .\.venv\Scripts\astralogue.exe arcs audit saves/arc/autosave.save.json --output data/arc-edge-audit.json
 ```
 
-播放中 `:profile` 查看载体与代号，`:progress` 查看任务进度，`:previous` 返回已读快照，`:back` 回溯选择，`:save` 保存。
+账号播放中 `:profile` 查看载体与代号，`:progress` 查看任务进度，`:quit` 返回账号菜单；进度静默保存。
 来源转录阅读策略和逐边证据继续随包及存档保留；普通界面隐藏重复技术说明。未匹配原始 ID 的文本保留社区来源，
 不全局替换字面称谓“开拓者”，也不将 BWIKI 关系升级为 Strict。
 下载/对齐方法仍见下文；播放只需要独立 StoryPack，不需要 HF、原始表或游戏安装目录。
@@ -33,8 +49,8 @@ M9 已完成序章 **「今天是昨天的明天」整章 Reader**：从正式�
 ```powershell
 # 新环境显式获取本轮的小范围缓存；之后重建和播放都不联网
 .\.venv\Scripts\python.exe tools/prepare_player_sources.py --proxy http://127.0.0.1:10808
-# 两个档案使用不同存档路径，互不覆盖
-.\.venv\Scripts\astralogue.exe arcs play --save-file saves/stelle.save.json --autosave saves/stelle-auto.save.json
+# 新账号第一次使用时，可显式接入旧文件存档；账号有进度后不允许替换
+.\.venv\Scripts\astralogue.exe start --import-save saves/old.save.json
 # M9 旧包保留不变；跨包加载必须显式迁移到新文件
 .\.venv\Scripts\astralogue.exe arcs migrate-save --save saves/old.save.json --old-pack data/packs/prologue-arc.storypack --pack data/packs/prologue-player.storypack --output saves/migrated.save.json
 # 原 M9 构建流程仍可用
@@ -218,7 +234,10 @@ uv run astralogue validate --explore "hsr:Config/Level/Mission/TrainVisitor/Act/
 首次 `uv run` 可能同步环境；需要保证启动无联网时，环境就绪后用
 `.\.venv\Scripts\astralogue.exe play`（Linux：`.venv/bin/astralogue play`）。
 
-## 操作与存档
+## 文件存档开发工具
+
+以下是显式 play/resume 的旧文件模式，供开发验证及旧档兼容，不访问账号进度。普通玩家使用默认账号入口。
+账号模式自动保存，不支持这些另存与回退命令；首次导入旧文件见上文 `start --import-save`。
 
 - 回车逐句推进；选项输入显示的编号，单选项也需确认。
 - `:back` 恢复上次选择前的完整状态，可重新选择分支。

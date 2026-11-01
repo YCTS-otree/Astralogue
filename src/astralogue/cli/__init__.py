@@ -18,7 +18,7 @@ from astralogue.runtime import BlockedEvent, ChoiceEvent, DiagnosticEvent, Dialo
 from astralogue.storypack import StoryPack
 from astralogue.player import ProfileEvent
 
-app = typer.Typer(no_args_is_help=True, help="Astralogue 星轨叙事引擎：离线剧情编译与播放")
+app = typer.Typer(no_args_is_help=False, help="Astralogue 星轨叙事引擎：离线剧情编译与播放")
 console = Console(highlight=False)
 DEFAULT_PACK = Path("data/packs/astralogue.storypack")
 DEFAULT_IR = Path("data/staging/story.ir.json")
@@ -26,9 +26,19 @@ DEFAULT_SAVE = Path("saves/latest.save.json")
 _DEBUG=ContextVar('astralogue_cli_debug',default=False)
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def configure(ctx: typer.Context, debug: Annotated[bool, typer.Option(help="显示来源、证据等级和 Reader 调试说明")] = False):
     token=_DEBUG.set(debug);ctx.call_on_close(lambda:_DEBUG.reset(token))
+    if ctx.invoked_subcommand is None:
+        from astralogue.accounts import launch
+        launch(debug=debug)
+
+
+@app.command('start')
+def start(pack:Path=Path('data/packs/prologue-player.storypack'),accounts_dir:Path=Path('saves/accounts'),debug:bool=False,import_save:Path|None=None):
+    """注册/登录本地账号，自动继续唯一进度。"""
+    from astralogue.accounts import launch
+    return launch(pack,accounts_dir,debug,import_save)
 
 
 def debug_enabled(explicit=False):
@@ -179,11 +189,16 @@ def list_cmd(pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK,
         console.print(table)
 
 
-HELP = "回车：下一句；选项输入编号；:back 回溯选择；:previous 返回已读快照；:profile 档案；:progress 进度；:save [路径]；:load [路径]；:event 事件名；:quit 退出（自动保存）。"
+HELP = "回车：下一句；选项输入编号；:back 回溯选择；:previous 返回已读快照；:profile 档案；:progress 进度；:save [路径]；:load [路径]；:event 事件名；:quit 退出。"
 
 
-def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
+def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False, account=None):
     debug=debug_enabled(debug)
+    help_text=HELP if account is None else '回车：下一句；选项输入编号；:profile 档案；:progress 进度；:quit 返回账号菜单。'
+    def persist():
+        if account is None:rt.save(autosave)
+        else:account.save(rt)
+        if debug:console.print('已自动保存'+(f'：{autosave}' if account is None else '：账号唯一进度'),markup=False)
     if getattr(rt,'profile_notice',None):console.print(rt.profile_notice,markup=False)
     mode = rt.pack.metadata.get("narrative", {}).get("modes", {}).get(rt.state.mission, {}).get("mode", "strict")
     if mode == "reader":
@@ -191,7 +206,7 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
         except ValueError: title = rt.state.mission
         console.print(("Reader 范围："+title) if debug else title.split(' · ')[0], markup=False)
         if debug:console.print("Reader 文字投影：确认/人工引导均写入存档；阅读结束不证明原游戏任务或 Strict 完成。", markup=False)
-    console.print(HELP, markup=False)
+    console.print(help_text, markup=False)
     event = None
     while True:
         if event is None:
@@ -201,7 +216,7 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
                 if event.migration:console.print('旧存档缺少玩家档案：请显式补全，当前剧情进度保留。', markup=False)
                 if event.stage == 'avatar':
                     console.print('【系统 · 启用载体】', markup=False)
-                    for i,(aid,a) in enumerate(event.avatars.items(),1):console.print(f"  {i}. {a['name']} [{aid}]", markup=False)
+                    for i,(aid,a) in enumerate(event.avatars.items(),1):console.print(f"  {i}. {a['name']}"+(f' [{aid}]' if debug else ''), markup=False)
                 elif event.stage == 'avatar_confirm':
                     console.print(f"【系统 · 载体确认】\n已选择：{event.profile['avatar_name']}\n认证完成后将无法更换载体。\n1. 确认\n2. 返回重新选择", markup=False)
                 elif event.stage == 'name':console.print('【系统 · 设置代号】请输入开拓者代号（Astralogue 限制：1–32 个 Unicode 字符）。', markup=False)
@@ -230,15 +245,20 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
             elif isinstance(event, EndEvent):
                 plain_end='本章阅读结束。' if rt.state.mission in rt.pack.metadata.get('story_arcs',{}) else '本段阅读结束。'
                 label = ("Reader 所选文字阅读段结束；未证明原游戏任务完成。" if debug else plain_end) if mode == "reader" else "本会话结束。"
-                console.print(label + "回车返回，也可 :back 或 :save。", markup=False)
+                console.print(label + ('回车返回账号菜单。' if account else '回车返回，也可 :back 或 :save。'), markup=False)
             elif isinstance(event, BlockedEvent): console.print(f"剧情暂停 [{event.code}]：{event.reason}", style="yellow", markup=False)
-            rt.save(autosave)
+            persist()
         try:
             answer = console.input("选择/命令 > " if isinstance(event, (ChoiceEvent,ProfileEvent)) else "> ").strip()
         except (EOFError, KeyboardInterrupt):
-            console.print(f"\n已自动保存：{autosave}", markup=False); return
+            persist(); return 'eof'
         try:
             command, _, arg = answer.partition(" ")
+            if account is not None:
+                if command in {':back',':previous',':load'}:raise ValueError('账号只有一份持续进度，不能读档回退或改选')
+                if command==':save':
+                    if arg:raise ValueError('账号模式不支持另存文件')
+                    persist();continue
             if command == ':profile' and hasattr(rt,'profile'):
                 p=rt.profile
                 console.print(json.dumps(p.to_dict(),ensure_ascii=False) if debug else f"载体：{p.avatar_name or '尚未选择'}\n代号：{p.nickname or '尚未设置'}",markup=False);continue
@@ -247,9 +267,9 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
             if command == ":progress" and hasattr(rt, "traversal"):
                 p=rt.progress()
                 console.print(json.dumps(p,ensure_ascii=False) if debug else f"{p['chapter']} · {p['task_title'] or '章节边界'}（{p['task'] or p['total_tasks']}/{p['total_tasks']}）",markup=False);continue
-            if command in {":quit", ":q"}:
-                rt.save(autosave); console.print(f"已自动保存：{autosave}", markup=False); return
-            if command in {":help", ":h"}: console.print(HELP, markup=False); continue
+            if command in {":quit", ":q", ":logout"}:
+                persist(); return
+            if command in {":help", ":h"}: console.print(help_text, markup=False); continue
             if command == ":save":
                 dest = Path(arg) if arg else save_path
                 rt.save(dest); console.print(f"已保存：{dest}", markup=False); continue
@@ -273,8 +293,9 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
                 if not answer.isdecimal() or not 1 <= int(answer) <= len(event.options): raise ValueError("请输入有效的选项编号")
                 rt.choose(event.options[int(answer) - 1].value); event = None
             elif isinstance(event, DialogueEvent) and answer == "": event = None
-            elif isinstance(event, EndEvent) and answer == "": return "ended"
+            elif isinstance(event, EndEvent) and answer == "":persist();return "ended"
             else: console.print("请输入有效操作，:help 查看命令。", markup=False)
+            if account is not None:persist()
         except ValueError as ex: console.print(str(ex), style="yellow", markup=False)
 
 

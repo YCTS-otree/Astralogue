@@ -1,6 +1,10 @@
 # Architecture / 架构
 
-版本 1.10.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+版本 1.11.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+
+默认 CLI 与 arcs play 进入本地账号入口。accounts 模块通过现有 Runtime/ArcSession 的存档格式序列化，
+把每个账号的唯一进度事务性写入独立 SQLite，而非写入 StoryPack。账号模式禁用回退/另存，检查已确认身份和选择前缀，
+使用每账号 OS 文件锁及数据库修订号避免并发覆盖；旧文件存档工具仍独立保留。账号数据库 Schema 1 与剧情包 Schema 分开。
 
 PlayerProfile 存于现有 State.variables，ArcSession 提供 ProfileEvent、显示时变量解析和逐边审计。
 初始化在编译出的真实剧情锚点发生；原 Runtime 未重写。持久变量由显式 set_story_variable/continue_to API 延续，

@@ -1,0 +1,61 @@
+# 本地账号与唯一进度 / 1.11.0
+
+```powershell
+.\.venv\Scripts\astralogue.exe
+# 等价的显式入口
+.\.venv\Scripts\astralogue.exe start
+.\.venv\Scripts\astralogue.exe arcs play
+# 显示来源及自动保存调试提示
+.\.venv\Scripts\astralogue.exe start --debug
+```
+
+打开后选择登录、注册或退出。注册填写账号与密码，确认密码后直接进入剧情；登录自动继续唯一进度。
+账号名独立于游戏内代号。密码没有复杂度要求，只要求 1–128 个字符，使用随机盐和 PBKDF2 保存，不存明文。
+这只是方便存档管理的本地账号，不连接服务器，也不提供云同步或防篡改保证。
+
+“不可改变的存档”表示一个账号始终使用同一份持续推进的进度，不是冻结剧情：
+
+- 不能为同一账号重开、创建多个存档槽、另存或读取其它进度。
+- 不能通过 `:back`、`:previous`、`:load` 回退改选；`--debug` 也不会解除这些约束。
+- 载体与代号确认前可按剧情界面返回重选/重输，确认后锁定。
+- 每句展示、选项及身份操作后保存，小节/任务边界同样保存；退出与 EOF 再提交一次检查。
+- 普通模式不显示自动保存提示。仅 `--debug` 显示提示；保存失败仍会明确报错。
+- `:profile` 查看身份，`:progress` 查看进度，`:quit`/`:logout` 返回账号菜单。已读完的账号再次登录停留在出口。
+
+数据默认位于当前工作目录的 `saves/accounts/accounts.sqlite`：一个账号一行、一份规范存档正文，账号数据库 Schema 1。
+存档正文继续沿用现有 Save Schema 1，保留身份、变量、任务位置、选择和 ArcSession 来源审计；不改写 StoryPack。
+同账号使用 OS 文件锁防止同时打开两个窗口；修订号检查避免过期会话覆盖，已确认身份和历史选择前缀也会在写入时校验。
+不同账号可独立推进。注册失败或密码确认不一致不会建立账号，认证失败不会写进度。
+
+如需不同工作目录，可显式传入相同的位置：
+
+```powershell
+.\.venv\Scripts\astralogue.exe start --pack G:\path\prologue-player.storypack --accounts-dir G:\path\saves\accounts
+```
+
+每个账号首次存档即绑定剧情包标识。包改变或版本不兼容时拒绝读取/重开，原进度保留；本轮不实现账号跨包升级迁移。
+无需因为程序升级而重新构建已有包，应保留账号正在使用的包。
+
+旧文件存档不自动覆盖或删除。可以一次性导入到尚无进度的新账号：
+
+```powershell
+.\.venv\Scripts\astralogue.exe start --import-save saves\old.save.json
+```
+
+在该次启动中注册新账号，导入会校验剧情包、存档格式和原身份，之后仍使用该账号唯一进度。
+已有进度的账号拒绝再次导入；其他账号的带归属存档也拒绝导入。原文件保持不变。
+旧文件跨包迁移仍由 `arcs migrate-save` 工具显式处理，不能用于直接替换已经建立的账号进度。
+显式 play/resume/save 文件命令保留用于开发和旧档验证，它们不操作账号数据库。
+
+## 验证记录
+
+基线实际执行 **217 passed / 90.09s**；完整回归 **223 passed / 89.25s**，最后的旧档导入复测 **6 passed**。
+新增测试覆盖注册/登录、名称规范化去重、密码错误、独立进度、过期写入、身份锁定、包绑定、
+同账号互斥、首次旧档导入、导入后再登录、默认启动菜单，以及普通静默与 debug 保存提示。
+
+`tools/verify_accounts.py` 使用真实序章，在临时工作目录通过 CLI 子进程完成注册 → 剧情身份确认 → 中途退出 → 登录继续 → 七任务正式出口。
+随后注册另一个账号确认独立开局，再次登录第一个已完成账号确认没有重开。
+子进程禁止联网和读取原始表、HF、BWIKI、AnimeStudio 与游戏目录；仅使用现有 StoryPack 与账号数据库。
+真实结果保存在 data/accounts-verification.json，完整日志在 data/staging/accounts-verification，均不提交 Git。
+
+本轮只改变账号与存档管理，不增加剧情文本、不修改已验证分支或 Strict 图。
