@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 from pathlib import Path
 import sqlite3
@@ -15,12 +16,31 @@ from astralogue import __version__
 from astralogue.model import Bundle, canonical, load_json
 from astralogue.runtime import BlockedEvent, ChoiceEvent, DiagnosticEvent, DialogueEvent, EndEvent, Runtime
 from astralogue.storypack import StoryPack
+from astralogue.player import ProfileEvent
 
 app = typer.Typer(no_args_is_help=True, help="Astralogue 星轨叙事引擎：离线剧情编译与播放")
 console = Console(highlight=False)
 DEFAULT_PACK = Path("data/packs/astralogue.storypack")
 DEFAULT_IR = Path("data/staging/story.ir.json")
 DEFAULT_SAVE = Path("saves/latest.save.json")
+_DEBUG=ContextVar('astralogue_cli_debug',default=False)
+
+
+@app.callback()
+def configure(ctx: typer.Context, debug: Annotated[bool, typer.Option(help="显示来源、证据等级和 Reader 调试说明")] = False):
+    token=_DEBUG.set(debug);ctx.call_on_close(lambda:_DEBUG.reset(token))
+
+
+def debug_enabled(explicit=False):
+    return bool(explicit or _DEBUG.get())
+
+
+def reading_text(value: str, debug: bool) -> str:
+    if debug:return value
+    if value.startswith('社区转录·'):value=value[len('社区转录·'):]
+    if value.startswith('版本/上下文对照附注'):return '附注'
+    if value=='Wiki 舞台/资源注释':return '画面提示'
+    return value.replace('（Wiki 注释：','（').replace('（Wiki 图标展示：','（画面展示：').replace('（Wiki 图片展示：','（画面展示：')
 
 
 @contextmanager
@@ -159,44 +179,74 @@ def list_cmd(pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK,
         console.print(table)
 
 
-HELP = "回车：下一句；选项输入编号；:back 回溯选择；:save [路径]；:load [路径]；:event 事件名；:quit 退出（自动保存）。"
+HELP = "回车：下一句；选项输入编号；:back 回溯选择；:previous 返回已读快照；:profile 档案；:progress 进度；:save [路径]；:load [路径]；:event 事件名；:quit 退出（自动保存）。"
 
 
-def interact(rt: Runtime, save_path: Path, autosave: Path):
+def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False):
+    debug=debug_enabled(debug)
+    if getattr(rt,'profile_notice',None):console.print(rt.profile_notice,markup=False)
     mode = rt.pack.metadata.get("narrative", {}).get("modes", {}).get(rt.state.mission, {}).get("mode", "strict")
     if mode == "reader":
         try: title = rt.pack.text(rt.pack.mission(rt.state.mission)["title"], rt.lang)
         except ValueError: title = rt.state.mission
-        console.print("Reader 范围：" + title, markup=False)
-        console.print("Reader 文字投影：确认/人工引导均写入存档；阅读结束不证明原游戏任务或 Strict 完成。", markup=False)
+        console.print(("Reader 范围："+title) if debug else title.split(' · ')[0], markup=False)
+        if debug:console.print("Reader 文字投影：确认/人工引导均写入存档；阅读结束不证明原游戏任务或 Strict 完成。", markup=False)
     console.print(HELP, markup=False)
     event = None
     while True:
         if event is None:
             event = rt.next()
             if isinstance(event, DiagnosticEvent): event = None; continue
-            if isinstance(event, DialogueEvent):
-                console.print(f"【{event.speaker}】", style="cyan", markup=False)
-                console.print(event.text, markup=False, soft_wrap=True)
+            if isinstance(event, ProfileEvent):
+                if event.migration:console.print('旧存档缺少玩家档案：请显式补全，当前剧情进度保留。', markup=False)
+                if event.stage == 'avatar':
+                    console.print('【系统 · 启用载体】', markup=False)
+                    for i,(aid,a) in enumerate(event.avatars.items(),1):console.print(f"  {i}. {a['name']} [{aid}]", markup=False)
+                elif event.stage == 'avatar_confirm':
+                    console.print(f"【系统 · 载体确认】\n已选择：{event.profile['avatar_name']}\n认证完成后将无法更换载体。\n1. 确认\n2. 返回重新选择", markup=False)
+                elif event.stage == 'name':console.print('【系统 · 设置代号】请输入开拓者代号（Astralogue 限制：1–32 个 Unicode 字符）。', markup=False)
+                else:console.print(f"【系统 · 确认代号】\n载体：{event.profile['avatar_name']}\n代号：{event.profile['nickname']}\n1. 确认\n2. 重新输入", markup=False)
+            elif isinstance(event, DialogueEvent):
+                console.print(f"【{reading_text(event.speaker,debug)}】", style="cyan", markup=False)
+                console.print(reading_text(event.text,debug), markup=False, soft_wrap=True)
             elif isinstance(event, ChoiceEvent):
-                message = rt.pack.node(event.node).data.get("reader_message")
-                if message: console.print("[Reader] " + message, markup=False)
-                for i, opt in enumerate(event.options, 1): console.print(f"  {i}. {opt.text}", markup=False)
+                node=rt.pack.node(event.node);action=node.data.get('reader_action');message=node.data.get('reader_message')
+                if debug and message:console.print('[Reader] '+message,markup=False)
+                elif not debug:
+                    if action=='optional_inquiry':console.print('可逐一询问，也可选择继续。',markup=False)
+                    elif action=='optional_idle_dialogue':console.print('等待时的可选对白：查看或继续剧情。',markup=False)
+                    elif action in {'manual_guide','user_order','community_patch','track_selection'}:console.print('当前阅读关系尚未确定；请选择采用的阅读方向。',markup=False)
+                    elif action in {'confirmation','unknown_marker'}:console.print('暂停条件尚未恢复；确认后继续阅读。',markup=False)
+                for i,opt in enumerate(event.options,1):
+                    label=opt.text if debug else reading_text(opt.text,False)
+                    if not debug:
+                        if action in {'source_transcript_policy','hf_consent','reader_consent'}:label='开始阅读'
+                        elif action in {'confirmation','unknown_marker','nontext_confirmation'}:label='确认继续'
+                        elif action=='community_patch':label='采用此阅读修订'
+                        elif action=='reading_end':label='结束本段阅读'
+                        elif action=='timeline_return':label='返回当前故事'
+                        elif action=='track_selection':label=f'阅读片段 {i}'
+                    console.print(f'  {i}. {label}',markup=False)
             elif isinstance(event, EndEvent):
-                label = "Reader 所选文字阅读段结束；未证明原游戏任务完成。" if mode == "reader" else "本会话结束。"
+                plain_end='本章阅读结束。' if rt.state.mission in rt.pack.metadata.get('story_arcs',{}) else '本段阅读结束。'
+                label = ("Reader 所选文字阅读段结束；未证明原游戏任务完成。" if debug else plain_end) if mode == "reader" else "本会话结束。"
                 console.print(label + "回车返回，也可 :back 或 :save。", markup=False)
             elif isinstance(event, BlockedEvent): console.print(f"剧情暂停 [{event.code}]：{event.reason}", style="yellow", markup=False)
             rt.save(autosave)
         try:
-            answer = console.input("选择/命令 > " if isinstance(event, ChoiceEvent) else "> ").strip()
+            answer = console.input("选择/命令 > " if isinstance(event, (ChoiceEvent,ProfileEvent)) else "> ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print(f"\n已自动保存：{autosave}", markup=False); return
         try:
             command, _, arg = answer.partition(" ")
+            if command == ':profile' and hasattr(rt,'profile'):
+                p=rt.profile
+                console.print(json.dumps(p.to_dict(),ensure_ascii=False) if debug else f"载体：{p.avatar_name or '尚未选择'}\n代号：{p.nickname or '尚未设置'}",markup=False);continue
             if command == ":previous" and hasattr(rt, "previous"):
                 rt.previous(); event = None; continue
             if command == ":progress" and hasattr(rt, "traversal"):
-                console.print(json.dumps(rt.progress(), ensure_ascii=False), markup=False); continue
+                p=rt.progress()
+                console.print(json.dumps(p,ensure_ascii=False) if debug else f"{p['chapter']} · {p['task_title'] or '章节边界'}（{p['task'] or p['total_tasks']}/{p['total_tasks']}）",markup=False);continue
             if command in {":quit", ":q"}:
                 rt.save(autosave); console.print(f"已自动保存：{autosave}", markup=False); return
             if command in {":help", ":h"}: console.print(HELP, markup=False); continue
@@ -209,7 +259,17 @@ def interact(rt: Runtime, save_path: Path, autosave: Path):
             if command == ":event":
                 if not isinstance(event, BlockedEvent) or event.code != "waiting_event": raise ValueError("只有等待外部事件时可显式注入事件")
                 rt.signal(arg); event = None; continue
-            if isinstance(event, ChoiceEvent):
+            if isinstance(event,ProfileEvent):
+                if event.stage=='avatar':
+                    keys=list(event.avatars)
+                    if not answer.isdecimal() or not 1<=int(answer)<=len(keys):raise ValueError('请选择有效载体编号')
+                    value=keys[int(answer)-1]
+                elif event.stage=='name':value=answer
+                else:
+                    if answer not in {'1','2'}:raise ValueError('请输入 1 或 2')
+                    value='confirm' if answer=='1' else 'back'
+                rt.identity_input(value);event=None
+            elif isinstance(event, ChoiceEvent):
                 if not answer.isdecimal() or not 1 <= int(answer) <= len(event.options): raise ValueError("请输入有效的选项编号")
                 rt.choose(event.options[int(answer) - 1].value); event = None
             elif isinstance(event, DialogueEvent) and answer == "": event = None
@@ -247,7 +307,8 @@ def play(mission: Annotated[str | None, typer.Argument(help="不指定时从会�
          status: Annotated[str, typer.Option(help="菜单完整性筛选；显式会话 ID 不受此筛选限制")] = "RESOLVED",
          category: Annotated[str | None, typer.Option(help="菜单任务类别筛选")] = None,
          save_file: Annotated[Path, typer.Option()] = DEFAULT_SAVE,
-         autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json")):
+         autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json"),
+         debug: Annotated[bool,typer.Option(help="显示来源及 Reader 调试信息")] = False):
     """逐句阅读真实剧情并执行分支；全程离线。"""
     with errors(), StoryPack(pack) as sp:
         if mission is None:
@@ -255,23 +316,25 @@ def play(mission: Annotated[str | None, typer.Argument(help="不指定时从会�
             mission = select_mission(sp, search, lang.upper(), status, category)
             if mission is None: return
         m = sp.mission(mission)
-        console.print(f"完整性：{m['status']}（状态仅针对该会话）", markup=False)
+        debug=debug_enabled(debug)
+        if debug:console.print(f"完整性：{m['status']}（状态仅针对该会话）", markup=False)
         label = sp.metadata.get("mission_labels", {}).get(mission, {})
-        if label.get("scope") == "PERFORMANCE_FRAGMENT":
+        if debug and label.get("scope") == "PERFORMANCE_FRAGMENT":
             console.print("这是主线演出片段入口；未断言原任务的世界前置条件已满足，也不表示完整任务已完成。", markup=False)
-        elif label.get("scope") == "SUBMISSION_FRAGMENT":
+        elif debug and label.get("scope") == "SUBMISSION_FRAGMENT":
             console.print("这是主线子任务片段入口；前提为该子任务已激活，不表示完整开拓任务已完成。", markup=False)
-        elif label.get("scope") == "MISSION":
+        elif debug and label.get("scope") == "MISSION":
             console.print("主线入口按任务已接取初始化；原游戏 TakeParam 前置世界状态没有被伪造。", markup=False)
-        return interact(session(sp, mission, lang.upper()), save_file, autosave)
+        return interact(session(sp, mission, lang.upper()), save_file, autosave,debug)
 
 
 @app.command()
 def resume(save_file: Annotated[Path, typer.Option(exists=True)] = Path("saves/autosave.save.json"),
            pack: Annotated[Path, typer.Option(exists=True)] = DEFAULT_PACK,
-           autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json")):
+           autosave: Annotated[Path, typer.Option()] = Path("saves/autosave.save.json"),
+           debug: Annotated[bool,typer.Option()] = False):
     """检查存档兼容性，恢复下一句未读剧情及选择历史。"""
-    with errors(), StoryPack(pack) as sp: return interact(load_session(sp, save_file), save_file, autosave)
+    with errors(), StoryPack(pack) as sp: return interact(load_session(sp, save_file), save_file, autosave,debug)
 
 
 @app.command()

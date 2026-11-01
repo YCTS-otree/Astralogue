@@ -76,5 +76,5 @@ with StoryPack(path) as pack:
     with tempfile.TemporaryDirectory() as cwd:
         result=subprocess.run([sys.executable,'-m','astralogue','arcs','play','--pack',str(path.resolve())],input=payload,text=True,encoding='utf8',capture_output=True,cwd=cwd,env={**os.environ,'PYTHONIOENCODING':'utf8','HTTP_PROXY':'http://127.0.0.1:1','HTTPS_PROXY':'http://127.0.0.1:1'},timeout=90)
     (folder/'full-cli.txt').write_text(result.stdout+result.stderr,encoding='utf8')
-    assert result.returncode==0 and 'Reader 所选文字阅读段结束' in result.stdout,result.stderr
+    assert result.returncode==0 and '本章阅读结束' in result.stdout,result.stderr
     print('Whole chapter verified: 7 tasks, 941/941 source rows, no manual task jumps; CLI exit 0')

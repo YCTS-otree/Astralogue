@@ -174,3 +174,26 @@
 ### Notes
 - Story Arc Reader completion succeeds; native game execution remains unproven. Missing branches outside projected scenes remain disclosed.
 - Full HF source coverage is not a claim of full game text coverage. Raw sources, full logs, saves and StoryPacks remain excluded from Git.
+
+## v1.10.0 - 2026-11-01
+
+### Added
+- In-story Star/Caelus identity selection, confirmation, Unicode nickname and versioned PlayerProfile in existing saves, with explicit legacy-save migration.
+- Presentation-only nickname/gender variables, 29 source-bound community nickname annotations, and explicit persistent variable continuation between chapters.
+- Cached BWIKI template adapter, nine additional prologue options across six menus, and two original-script-backed optional inquiry loops with HideSelected behavior.
+- Reviewed, hash-bound Community Patch text-parameter operations and structured anonymous speaker metadata.
+- Inline media metadata and a separate, source-backed baseball-bat editorial stage note without invented actions.
+- Two-profile real CLI save/quit/resume verification, 17 menu paths, 18 preserved native combinations and 217 passing regression tests.
+
+### Changed
+- Ordinary playback hides provenance prefixes and repeated Reader diagnostics; global or command-level --debug restores them without altering evidence or audits.
+- Player-enabled prologue builds use prologue-player.storypack; the prior M9 pack and its rebuild mode remain available.
+
+### Fixed
+- Default community nicknames no longer remain literal where complete original variable layouts prove the replacement; ambiguous IDs remain unassigned.
+- Waiting-time identity-selection extras are explicitly optional instead of mandatory sequential dialogue.
+- Arc autosaves atomically write complete state and audit once, with bounded Windows replacement retries.
+
+### Notes
+- StoryPack and Save Schema remain 1. Enhanced packs declare reader-player-v1; incompatible old engines reject them rather than silently omitting identity.
+- Strict nodes, edges and texts are preserved. Full prologue Reader succeeds; complete native game execution and remaining branch coverage are still unproven.

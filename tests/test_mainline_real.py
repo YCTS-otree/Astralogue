@@ -90,7 +90,7 @@ def test_real_mainline_save_and_rechoose(real_mainline, tmp_path):
 def test_real_mainline_cli_without_upstream(real_mainline, tmp_path):
     path, mid = real_mainline
     result = subprocess.run([sys.executable, "-m", "astralogue", "play", mid, "--pack", str(path),
-                             "--autosave", str(tmp_path / "auto.json")],
+                             "--autosave", str(tmp_path / "auto.json"), "--debug"],
                             input="\n\n1\n" + "\n" * 7 + "3\n\n\n\n", capture_output=True,
                             text=True, encoding="utf-8", timeout=20, cwd=tmp_path,
                             env={**os.environ, "PYTHONIOENCODING": "utf-8", "HTTP_PROXY": "http://127.0.0.1:1", "HTTPS_PROXY": "http://127.0.0.1:1"})

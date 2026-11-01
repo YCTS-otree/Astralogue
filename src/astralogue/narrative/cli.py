@@ -19,7 +19,8 @@ def write(path: Path, value: dict):
 @reader_app.command()
 def play(pack: Annotated[Path, typer.Option(exists=True)], mode: Annotated[str, typer.Option()] = "reader",
          save_file: Annotated[Path, typer.Option()] = Path("saves/reader/latest.save.json"),
-         autosave: Annotated[Path, typer.Option()] = Path("saves/reader/autosave.save.json")):
+         autosave: Annotated[Path, typer.Option()] = Path("saves/reader/autosave.save.json"),
+         debug: Annotated[bool,typer.Option()] = False):
     """选择 Strict/Reader；普通 play 和 resume 同样兼容该包。"""
     from astralogue.cli import errors, play as player
     from astralogue.storypack import StoryPack
@@ -28,7 +29,7 @@ def play(pack: Annotated[Path, typer.Option(exists=True)], mode: Annotated[str, 
         mission = sp.metadata.get("narrative", {}).get("entries", {}).get(mode)
         if not mission: raise ValueError("剧情包没有该模式的入口")
         return player(mission=mission, pack=pack, lang="CHS", search="", status="ALL", category=None,
-                      save_file=save_file, autosave=autosave)
+                      save_file=save_file, autosave=autosave,debug=debug)
 
 
 @reader_app.command("audit")

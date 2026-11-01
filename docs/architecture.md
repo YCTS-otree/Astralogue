@@ -1,6 +1,13 @@
 # Architecture / 架构
 
-版本 1.9.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+版本 1.10.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+
+PlayerProfile 存于现有 State.variables，ArcSession 提供 ProfileEvent、显示时变量解析和逐边审计。
+初始化在编译出的真实剧情锚点发生；原 Runtime 未重写。持久变量由显式 set_story_variable/continue_to API 延续，
+只有到达当前章节出口并验证载体定义后才能开启下一阅读会话，不据此制造原生跨章节控制边。
+StoryPack/Save Schema 均保留 1；增强包声明 reader-player-v1 能力，旧引擎拒绝误读，旧包仍可直接打开。
+BWIKI 适配器使用带参数嵌套边界的 Wikitext 模板解析，仅在 HF 区间、原始选项组与汇合锚点可核实时增补 Reader。
+来源与原文保留；普通 CLI 的来源隐藏仅属显示策略，--debug 恢复证据说明。
 
 ```mermaid
 flowchart LR

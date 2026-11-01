@@ -2,26 +2,49 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.9.0**，StoryPack Schema **1**。
+当前版本 **1.10.0**，StoryPack Schema **1**。
+
+序章现在支持剧情内选择「星／穹」、二次确认与中文代号；身份、变量、历史和来源审计随原存档保存。
+BWIKI 补足卡芙卡的三组选项及《漩涡止于中心》的三组遗漏选项；两处询问对话根据原脚本恢复返回菜单和隐藏已选项。
+普通播放只呈现剧情，来源前缀和 Reader 技术说明通过 `--debug` 显示；未确定的剧情关系与真正阻塞仍会提示。
+详见 [玩家档案与 BWIKI 实测](docs/player-profile-bwiki-verification.md)。
 
 M9 已完成序章 **「今天是昨天的明天」整章 Reader**：从正式开场到列车出发的章节边界，
 7 个任务段自动衔接，941/941 个来源条目保留；已知原生选择的 18 种组合都能读到章节出口。
 这是标明来源的转录阅读完成，原生 Strict 完成仍未证明。详见 [M9 验证报告](docs/m9-verification.md)。
 
 ```powershell
-# 已有项目数据的离线重建；不访问网络、不解包
+# 本机已缓存本轮两个 BWIKI 页面及同版 AvatarConfig，可直接离线构建
 .\.venv\Scripts\astralogue.exe arcs build --force
 .\.venv\Scripts\astralogue.exe arcs play
+# 需要查看来源、证据与调试说明时
+.\.venv\Scripts\astralogue.exe arcs play --debug
 # 也可用普通 Reader
-.\.venv\Scripts\astralogue.exe reader play --pack data/packs/prologue-arc.storypack
-.\.venv\Scripts\astralogue.exe resume --pack data/packs/prologue-arc.storypack --save-file saves/arc/autosave.save.json
+.\.venv\Scripts\astralogue.exe reader play --pack data/packs/prologue-player.storypack
+.\.venv\Scripts\astralogue.exe resume --pack data/packs/prologue-player.storypack --save-file saves/arc/autosave.save.json
 .\.venv\Scripts\astralogue.exe arcs audit saves/arc/autosave.save.json --output data/arc-edge-audit.json
 ```
 
-播放中 `:progress` 查看任务进度，`:previous` 返回上一条已访问内容，`:back` 回溯选择，`:save` 保存。
-一次接受 Source Transcript Policy 后普通来源顺序不再逐边确认；玩家记录路径与完整支持的原生局部选项仍交互。
-未匹配原始 ID 的文本保留为“社区转录”，旁白与舞台说明照录，版本差异显示为对照附注。
+播放中 `:profile` 查看载体与代号，`:progress` 查看任务进度，`:previous` 返回已读快照，`:back` 回溯选择，`:save` 保存。
+来源转录阅读策略和逐边证据继续随包及存档保留；普通界面隐藏重复技术说明。未匹配原始 ID 的文本保留社区来源，
+不全局替换字面称谓“开拓者”，也不将 BWIKI 关系升级为 Strict。
 下载/对齐方法仍见下文；播放只需要独立 StoryPack，不需要 HF、原始表或游戏安装目录。
+
+```powershell
+# 新环境显式获取本轮的小范围缓存；之后重建和播放都不联网
+.\.venv\Scripts\python.exe tools/prepare_player_sources.py --proxy http://127.0.0.1:10808
+# 两个档案使用不同存档路径，互不覆盖
+.\.venv\Scripts\astralogue.exe arcs play --save-file saves/stelle.save.json --autosave saves/stelle-auto.save.json
+# M9 旧包保留不变；跨包加载必须显式迁移到新文件
+.\.venv\Scripts\astralogue.exe arcs migrate-save --save saves/old.save.json --old-pack data/packs/prologue-arc.storypack --pack data/packs/prologue-player.storypack --output saves/migrated.save.json
+# 原 M9 构建流程仍可用
+.\.venv\Scripts\astralogue.exe arcs build --no-player --output data/packs/prologue-arc.storypack --force
+```
+
+旧存档仍可用原包继续阅读。显式迁移保留原进度、身份（如已有）、旧选项及逐边审计，另存迁移凭据；
+更换过的剧情图不伪造旧导航快照，回溯从迁移点开始。缺档案时先提示补全，不自动设置默认姓名或载体。
+节点结构已变化的少数位置会拒绝自动迁移，可先在原包继续到结构稳定的台词处。
+应用自身的代号限制为 1–32 个 Unicode 字符，拒绝控制/格式字符；这不是游戏官方长度限制。
 
 HF 中文有序转录已接入 M8：两个样本映射到 193 个不同原始 ID，31 个明确范围的 Reader 节选已实跑，
 净新增 105 条 **HF 来源阅读关系**，新增原生控制关系为 0。完整游戏任务仍未证明完成。

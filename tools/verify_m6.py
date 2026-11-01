@@ -80,7 +80,7 @@ def verify(path, decisions, directory, name):
                         "--autosave", str((directory / f"{name}-cli.save.json").resolve())], cwd=cwd, env=env,
                         input=input_, text=True, encoding="utf8", capture_output=True, timeout=40)
                 (directory / f"{name}-cli.txt").write_text(result.stdout + result.stderr, encoding="utf8")
-                if result.returncode or "Reader 所选文字阅读段结束" not in result.stdout: raise AssertionError("CLI did not reach reading end")
+                if result.returncode or "本段阅读结束" not in result.stdout: raise AssertionError("CLI did not reach reading end")
         return {"pack_id": pack.metadata["pack_id"], "mode_scope": info["modes"], "strict_control_entry": type(strict).__name__,
                 "strict_complete_game_timelines": 0, "strict_complete_named_missions": 0, "reader_complete_named_missions": 0,
                 "strict_native_calls_attempted": len(native_calls), "strict_native_blocked": native_blocked,

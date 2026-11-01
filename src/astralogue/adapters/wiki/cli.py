@@ -9,6 +9,21 @@ from astralogue.model import load_json,file_hash
 from . import parse,align,build,review,report
 app=typer.Typer(no_args_is_help=True)
 
+@app.command('bwiki-fetch')
+def bwiki_fetch(page:str,output:Path,proxy:str|None=None):
+    """显式获取一个 BWIKI 页面；固定快照可完全离线复用。"""
+    from .bwiki import fetch as fetch_page
+    from astralogue.cli import errors
+    with errors():
+        p=fetch_page(page,output,proxy)['parse']
+        typer.echo(json.dumps({'title':p['title'],'page_id':p['pageid'],'revision_id':p['revid'],'sha256':file_hash(output)},ensure_ascii=False))
+
+@app.command('bwiki-parse')
+def bwiki_parse(snapshot:Path,output:Path):
+    from .bwiki import parse_page
+    from astralogue.cli import errors
+    with errors():write(output,parse_page(snapshot))
+
 def write(path,value):
     path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf8')
 

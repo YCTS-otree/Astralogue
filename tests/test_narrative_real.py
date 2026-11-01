@@ -129,7 +129,7 @@ def test_real_reader_cli_in_empty_directory_and_audit(actual_reader, tmp_path):
     for key in list(env):
         if key.startswith("ASTRALOGUE_HSR_"): env.pop(key)
     save = tmp_path / "save.json"
-    result = subprocess.run([sys.executable, "-m", "astralogue", "reader", "play", "--pack", str(path), "--autosave", str(save)],
+    result = subprocess.run([sys.executable, "-m", "astralogue", "reader", "play", "--pack", str(path), "--autosave", str(save), "--debug"],
                             cwd=tmp_path, env=env, input=input_, text=True, encoding="utf8", capture_output=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "Reader 所选文字阅读段结束" in result.stdout and "非原游戏完整执行" in result.stdout

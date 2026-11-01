@@ -52,7 +52,7 @@ def verify_one(alignment_path,pack_path,records):
                 with tempfile.TemporaryDirectory() as cwd:
                     cli=subprocess.run([sys.executable,'-m','astralogue','reader','play','--pack',str(pack_path.resolve()),'--autosave',str((records/(pack_path.stem+suffix+'-cli.save.json')).resolve())],cwd=cwd,env=env,input=input_,encoding='utf8',text=True,capture_output=True,timeout=30)
                 (records/(pack_path.stem+suffix+'-cli.txt')).write_text(cli.stdout+cli.stderr,encoding='utf8')
-                assert cli.returncode==0 and 'Reader 所选文字阅读段结束' in cli.stdout,cli.stderr
+                assert cli.returncode==0 and '本段阅读结束' in cli.stdout,cli.stderr
                 result['default_cli' if not suffix else 'novel_cli']={'new_external_pair_count':novelty(mid),'exit_code':cli.returncode,'mission':mid,'ids':ids}
         result.update(runtime_completed_excerpts=len(entries),distinct_reader_ids=len(selected_ids),full_dataset_scope_completed=False,full_game_task_completed=False,pack_id=pack.metadata['pack_id'])
     return result

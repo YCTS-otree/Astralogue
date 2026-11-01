@@ -34,6 +34,24 @@ def validate_patch(bundle: Bundle, patch: dict) -> dict:
         adjacency = {}
         for edge in edges.values(): adjacency.setdefault(edge.source, set()).add(edge.target)
         for op in operations:
+            if isinstance(op,dict) and op.get('op')=='text_parameter':
+                node=nodes.get(op.get('source'))
+                if node is None or info.get('modes',{}).get(node.mission,{}).get('mode')!='reader':raise ValueError('文本参数只能标注 Reader 节点')
+                if patch['status']!='reviewed':raise ValueError('文本参数必须经审核')
+                if op.get('parameter')!='nickname' or not isinstance(op.get('evidence'),list) or not op['evidence'] or set(op['evidence'])-set(ids):raise ValueError('文本参数/证据无效')
+                if node.kind=='dialogue':key=node.text
+                elif node.kind=='choice':
+                    options=[e for e in bundle.edges if e.source==node.id and e.value==op.get('option')]
+                    if len(options)!=1:raise ValueError('文本参数选项不唯一')
+                    key=options[0].text
+                else:raise ValueError('节点没有可标注文本')
+                text=bundle.texts.get(key,{}).get(op.get('language','CHS'))
+                start,end=op.get('start'),op.get('end')
+                if not isinstance(text,str) or digest(text)!=op.get('text_hash') or type(start) is not int or type(end) is not int or not 0<=start<end<=len(text) or text[start:end]!=op.get('literal'):raise ValueError('文本参数范围或哈希已失效')
+                annotations=node.data.get('text_parameters',[])
+                if any(max(start,a['start'])<min(end,a['end']) for a in annotations):raise ValueError('文本参数范围冲突')
+                if node.id in touched:raise ValueError('补丁节点重复操作')
+                touched.add(node.id);continue
             if not isinstance(op, dict) or op.get("op") not in {"connect", "order", "condition", "event"}: raise ValueError("未知补丁操作")
             allowed = {"op", "source", "target", "mission", "evidence", "condition", "replace_edge", "event", "description"}
             if set(op) - allowed: raise ValueError("未知操作字段")
@@ -91,6 +109,10 @@ def apply_patch(bundle: Bundle, patch: dict, include_pending: bool = False) -> B
     for i, op in enumerate(patch["operations"]):
         node = next(n for n in b.nodes if n.id == op["source"])
         original[node.id] = asdict(node)
+        if op['op']=='text_parameter':
+            node.data.setdefault('text_parameters',[]).append({k:deepcopy(op[k]) for k in ['start','end','literal','parameter','evidence']})
+            node.data['text_parameters'][-1].update(patch=patch['id'],language=op.get('language','CHS'),option=op.get('option'))
+            continue
         if node.id in info["policies"]: original_policies[node.id] = deepcopy(info["policies"][node.id])
         if op.get("replace_edge"):
             removed = next(e for e in b.edges if e.id == op["replace_edge"])

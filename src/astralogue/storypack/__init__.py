@@ -75,7 +75,7 @@ class StoryPack:
             self.metadata = {r["key"]: json.loads(r["value"]) for r in self.con.execute("SELECT * FROM metadata")}
             if self.metadata.get("schema_version") != version: raise ValueError("Schema 版本元数据不一致")
             if not isinstance(self.metadata.get("pack_id"), str): raise ValueError("缺少数据包标识")
-            if set(self.metadata.get("required_capabilities", [])) - {"call-return-v1"}:
+            if set(self.metadata.get("required_capabilities", [])) - {"call-return-v1", "reader-player-v1"}:
                 raise ValueError("数据包需要当前引擎尚未支持的执行能力")
         except Exception:
             self.close(); raise

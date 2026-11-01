@@ -159,7 +159,7 @@ def guard(event,args):
   path=os.path.normcase(os.path.abspath(args[0]))
   if any(path==p or path.startswith(p+os.sep) for p in denied):raise AssertionError('Build input access forbidden')
 sys.addaudithook(guard)
-sys.argv=['astralogue','reader','play','--pack',pack,'--autosave',save]
+sys.argv=['astralogue','reader','play','--pack',pack,'--autosave',save,'--debug']
 runpy.run_module('astralogue',run_name='__main__')
 """
     result=subprocess.run([sys.executable,'-c',code,str(copy),str(root),str(source),str(tmp_path/'cli.save.json')],input=input_,text=True,encoding='utf8',capture_output=True,cwd=tmp_path,env={**os.environ,'PYTHONIOENCODING':'utf8'},timeout=30)
