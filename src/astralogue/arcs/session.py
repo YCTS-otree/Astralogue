@@ -96,6 +96,11 @@ class ArcSession(Runtime):
         self.record(source,self.state.node,edge.value)
     def next(self,step_limit=1000):
         node=self.pack.node(self.state.node) if self.state.node else None
+        if node and node.data.get('reader_action')=='optional_idle_dialogue' and not getattr(self,'inspect_idle',False):
+            # This is a source archive of several waiting thresholds, not a
+            # mandatory conversation after the player has confirmed identity.
+            self.choose('skip')
+            return self.next(step_limit)
         if self.avatars and not self.profile.name_confirmed and (self.profile_migration or node and node.data.get('player_action')=='initialize'):
             return self.profile_event()
         if self.avatars and self.profile.name_confirmed and node and node.data.get('player_action')=='initialize':

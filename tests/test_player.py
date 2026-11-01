@@ -214,6 +214,18 @@ def test_real_optional_inquiries_return_hide_selected_and_restore(player_arc,tmp
         restored.choose('continue');assert restored.state.node==branch['merge']
 
 
+def test_waiting_extras_are_not_played_after_identity_confirmation(player_arc):
+    mid=next(iter(player_arc.metadata['story_arcs']))
+    menu=player_arc.metadata['player_reader']['report']['optional_idle']['node']
+    rt=ArcSession(player_arc,mid);rt.state.node=menu
+    event=rt.next()
+    assert isinstance(event,DialogueEvent)
+    assert player_arc.node(event.node).data['hf_index']==145
+    assert rt.traversal[0]['value']=='skip'
+    debug=ArcSession(player_arc,mid);debug.state.node=menu;debug.inspect_idle=True
+    assert isinstance(debug.next(),ChoiceEvent)
+
+
 def test_real_community_variable_layouts_do_not_select_ambiguous_ids(player_arc):
     report=player_arc.metadata['player_reader']['report']
     ambiguous=[a for a in report['annotations'] if len(a.get('candidate_ids',[]))>1]

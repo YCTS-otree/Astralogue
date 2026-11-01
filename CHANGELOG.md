@@ -214,3 +214,9 @@
 ### Notes
 - Existing StoryPack and Save Schema stay unchanged. Account database Schema 1 is separate, stores salted password hashes, and requires no online service.
 - Existing account progress is not reset when a different or incompatible pack is supplied; cross-pack account upgrades require a future explicit migration.
+
+## v1.11.1 - 2026-11-01
+
+### Fixed
+- Normal reading skips the explicitly optional carrier-selection waiting dialogue via its existing skip edge. Debug retains access to the source archive; no timer semantics are invented.
+- Existing StoryPacks and account bindings remain unchanged.

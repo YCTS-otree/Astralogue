@@ -194,6 +194,7 @@ HELP = "回车：下一句；选项输入编号；:back 回溯选择；:previous
 
 def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False, account=None):
     debug=debug_enabled(debug)
+    rt.inspect_idle=debug
     help_text=HELP if account is None else '回车：下一句；选项输入编号；:profile 档案；:progress 进度；:quit 返回账号菜单。'
     def persist():
         if account is None:rt.save(autosave)
@@ -274,7 +275,7 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False, 
                 dest = Path(arg) if arg else save_path
                 rt.save(dest); console.print(f"已保存：{dest}", markup=False); continue
             if command == ":load":
-                rt = load_session(rt.pack, Path(arg) if arg else save_path); event = None; continue
+                rt = load_session(rt.pack, Path(arg) if arg else save_path);rt.inspect_idle=debug; event = None; continue
             if command == ":back": rt.back(); event = None; continue
             if command == ":event":
                 if not isinstance(event, BlockedEvent) or event.code != "waiting_event": raise ValueError("只有等待外部事件时可显式注入事件")
