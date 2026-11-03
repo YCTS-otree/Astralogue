@@ -77,6 +77,7 @@ class AccountStore:
 
     def register(self, name: str, password: str) -> Account:
         display, login = username(name); salt = secrets.token_hex(16)
+        if self.exists(name):raise ValueError('账号已存在，请登录')
         encoded = password_hash(password, salt); aid = uuid.uuid4().hex
         try:
             with self.con:
@@ -85,6 +86,10 @@ class AccountStore:
         except sqlite3.IntegrityError as ex:
             raise ValueError('账号已存在，请登录') from ex
         return Account(aid, display)
+
+    def exists(self,name: str) -> bool:
+        _,key=username(name)
+        return self.con.execute('SELECT 1 FROM accounts WHERE login=?',(key,)).fetchone() is not None
 
     def login(self, name: str, password: str) -> Account:
         _, key = username(name)
@@ -180,6 +185,8 @@ class AccountProgress:
         return rt
 
     def save(self, rt):
+        scope=getattr(self,'play_scope',None)
+        if scope and rt.state.node not in scope['nodes']:raise ValueError('普通账号仅开放：今天是昨天的明天 · 混乱行至深处；原进度已保留')
         if rt.pack.metadata['pack_id'] != self.pack.metadata['pack_id']: raise ValueError('账号剧情包不匹配')
         with tempfile.TemporaryDirectory(dir=self.store.directory) as folder:
             path = Path(folder)/'progress.json'; rt.save(path); data = load_json(path)
@@ -199,6 +206,20 @@ def read_password(prompt: str) -> str:
     return line.rstrip('\r\n')
 
 
+def allowed_scope(pack,account):
+    if account.name=='0':return None
+    matches=[(mid,arc,b) for mid,arc in pack.metadata.get('story_arcs',{}).items()
+             for b in arc['task_boundaries'] if arc['plan']['title']=='今天是昨天的明天' and b['title']=='混乱行至深处']
+    if len(matches)!=1:raise ValueError('普通账号仅开放：今天是昨天的明天 · 混乱行至深处；当前包未提供唯一入口')
+    mid,arc,b=matches[0];entry=pack.mission(mid)['entry'];pending=[entry];seen=set()
+    while pending:
+        node=pending.pop()
+        if node in seen:continue
+        seen.add(node)
+        if node!=b['exit']:pending.extend(e.target for e in pack.edges(node))
+    return {'nodes':seen,'exit':b['exit']}
+
+
 def launch(pack_path: Path = DEFAULT_PLAYER_PACK, directory: Path = DEFAULT_ACCOUNTS, debug: bool = False, seed: Path | None = None):
     from astralogue.cli import console, errors, interact, debug_enabled
     from astralogue.storypack import StoryPack
@@ -212,6 +233,7 @@ def launch(pack_path: Path = DEFAULT_PLAYER_PACK, directory: Path = DEFAULT_ACCO
                 if choice == '0': return
                 if choice not in {'1','2'}: console.print('请输入 1、2 或 0。'); continue
                 name = console.input('账号 > ')
+                if choice=='2' and store.exists(name):raise ValueError('账号已存在，请登录')
                 password = read_password('密码 > ')
                 if choice == '2':
                     confirmation = read_password('确认密码 > ')
@@ -246,6 +268,7 @@ def launch(pack_path: Path = DEFAULT_PLAYER_PACK, directory: Path = DEFAULT_ACCO
                                               'policy':'explicit_user_navigation; not a game control edge'})
                         store.reset_progress(account)
                     progress = AccountProgress(store, account, pack)
+                    progress.play_scope=allowed_scope(pack,account)
                     if selected:
                         if seed is not None:raise ValueError('章节选择不能同时导入存档')
                         progress.save(rt)

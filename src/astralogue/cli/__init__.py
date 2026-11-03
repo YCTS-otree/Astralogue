@@ -211,6 +211,11 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False, 
     event = None
     while True:
         if event is None:
+            scope=getattr(account,'play_scope',None)
+            if scope:
+                if rt.state.node not in scope['nodes']:raise ValueError('普通账号仅开放：今天是昨天的明天 · 混乱行至深处；原进度已保留')
+                if rt.state.node==scope['exit']:
+                    persist();console.print('本节阅读结束，其他章节暂未开放。',markup=False);return 'ended'
             event = rt.next()
             if isinstance(event, DiagnosticEvent): event = None; continue
             if isinstance(event, ProfileEvent):

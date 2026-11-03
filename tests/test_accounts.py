@@ -12,6 +12,13 @@ from astralogue.runtime import DialogueEvent, ChoiceEvent, EndEvent
 from astralogue.storypack import StoryPack
 
 
+@pytest.fixture(autouse=True)
+def isolate_generic_account_infrastructure(monkeypatch):
+    # Synthetic non-HSR packs test storage/locking separately from availability.
+    from astralogue.accounts import allowed_scope
+    monkeypatch.setattr('astralogue.accounts.allowed_scope',lambda p,a:allowed_scope(p,a) if p.metadata.get('story_arcs') else None)
+
+
 def test_bootstrap_account_and_explicit_reset(pack_path,tmp_path):
     with AccountStore(tmp_path) as store,StoryPack(pack_path) as pack:
         account=store.login('0',bytes(range(48,56)).decode())

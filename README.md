@@ -2,7 +2,7 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.14.0**，StoryPack Schema **1**。
+当前版本 **1.15.0**，StoryPack Schema **1**。
 
 直接打开即可注册或登录本地账号：
 

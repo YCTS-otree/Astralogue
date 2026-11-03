@@ -1,6 +1,6 @@
 # Architecture / 架构
 
-版本 1.14.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
+版本 1.15.0，Python 3.11+。运行时与任何游戏格式、提取工具和网络模块解耦。
 
 默认 CLI 与 arcs play 进入本地账号入口。accounts 模块通过现有 Runtime/ArcSession 的存档格式序列化，
 把每个账号的唯一进度事务性写入独立 SQLite，而非写入 StoryPack。账号模式禁用回退/另存，检查已确认身份和选择前缀，
