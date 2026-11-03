@@ -2,7 +2,7 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.12.0**，StoryPack Schema **1**。
+当前版本 **1.13.0**，StoryPack Schema **1**。
 
 直接打开即可注册或登录本地账号：
 
@@ -316,6 +316,6 @@ TalkSentence 收录不等于已证明引用，更不等于主线覆盖。未知�
 离线工具支持显式结构树、有限 Wikitext、唯一英文匹配及 CHS 映射；HTML 与未知模板阻塞。
 英文输入需与 source 的固定快照 blob 相符。模糊候选须人工审查，Wiki 来源不进入 Strict。
 
-### BWIKI 后台 Pilot 与自由探索（1.12.0）
+### BWIKI 后台 Pilot 与自由探索（1.13.0）
 
 详见 [采集、恢复、离线构建与探索指南](docs/bwiki-background-pilot.md)。显式启动低频 Worker，默认仅序章；新探索包使用独立账号目录，原包和旧账号继续可用。未知游戏世界条件保留 unknown，可选内容仅作为 Reader 阅读入口。

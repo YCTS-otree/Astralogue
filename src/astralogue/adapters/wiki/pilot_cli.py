@@ -14,9 +14,17 @@ ROOT = Path('data/staging/bwiki-pilot')
 
 
 @pilot_app.command('start')
-def start(chapter: str = '100001', root: Path = ROOT, proxy: str | None = None):
+def start(chapter: str = '100001', root: Path = ROOT, proxy: str | None = None, target_version: str | None = None, daily_budget: int | None = None):
     if chapter != '100001': raise typer.BadParameter('Only chapter 100001 is enabled')
     p = Pilot(root)
+    if daily_budget is not None:
+        if not 1<=daily_budget<=720:raise typer.BadParameter('Daily budget must be 1..720; 120s spacing still applies')
+        with p.db:p.db.execute("INSERT OR REPLACE INTO settings VALUES('daily_budget',?)",(str(daily_budget),))
+    if target_version:
+        if target_version!='4.5':raise typer.BadParameter('Only target 4.5 is enabled')
+        with p.db:
+            p.db.execute("INSERT OR REPLACE INTO settings VALUES('target_version',?)",(target_version,))
+            p.db.execute('INSERT OR IGNORE INTO pages(title,chapter) VALUES(?,?)',('开拓任务','catalogue'))
     # No spawn if another worker owns the lock.
     from .pilot import single_instance
     with single_instance(p.root/'worker.lock'): p.state('running')

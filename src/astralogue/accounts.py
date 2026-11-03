@@ -20,6 +20,9 @@ from astralogue.model import canonical, load_json
 
 DEFAULT_ACCOUNTS = Path('saves/accounts')
 DEFAULT_PLAYER_PACK = Path('data/packs/prologue-player.storypack')
+# Public bootstrap account: only the salted verifier is kept in source.
+BOOTSTRAP_SALT = '9a1f97b123ce6bb5fa027204b8c9e4ff'
+BOOTSTRAP_HASH = 'efb166077aa473b9ff81bc556ec2295d4eaa5f5bc0d46d31329345671f897def'
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,9 @@ class AccountStore:
             pack_id TEXT, save_json TEXT, revision INTEGER NOT NULL DEFAULT 0)''')
         self.con.commit()
         self.con.execute('PRAGMA user_version=1')
+        with self.con:
+            self.con.execute('INSERT OR IGNORE INTO accounts(id,name,login,salt,password_hash) VALUES(?,?,?,?,?)',
+                             (uuid.uuid4().hex,'0','0',BOOTSTRAP_SALT,BOOTSTRAP_HASH))
 
     def __enter__(self): return self
     def __exit__(self, *args): self.con.close()
@@ -84,6 +90,11 @@ class AccountStore:
         row = self.con.execute('SELECT pack_id,save_json,revision FROM accounts WHERE id=?', (account.id,)).fetchone()
         if row is None: raise ValueError('账号不存在')
         return dict(row)
+
+    def reset_progress(self, account: Account):
+        """Explicit reset, while holding the account lock; invalidates stale writers."""
+        with self.con:
+            self.con.execute('UPDATE accounts SET pack_id=NULL,save_json=NULL,revision=revision+1 WHERE id=?',(account.id,))
 
     @contextmanager
     def lock(self, account: Account):
@@ -203,7 +214,35 @@ def launch(pack_path: Path = DEFAULT_PLAYER_PACK, directory: Path = DEFAULT_ACCO
                 del password
                 console.print('欢迎，'+account.name, markup=False)
                 with store.lock(account), StoryPack(pack_path) as pack:
-                    progress = AccountProgress(store, account, pack); rt = progress.open(seed)
+                    selected=None
+                    if account.name=='0' and pack.metadata.get('story_arcs'):
+                        choices=[]
+                        console.print('【章节 / 小节选择】\n0. 继续现有进度',markup=False)
+                        for mid,arc in pack.metadata['story_arcs'].items():
+                            for boundary in arc['task_boundaries']:
+                                choices.append((mid,boundary))
+                                console.print(f"{len(choices)}. {arc['plan']['title']} · {boundary['title']}",markup=False)
+                        value=console.input('请选择 > ').strip()
+                        if not value.isdecimal() or not 0<=int(value)<=len(choices):raise ValueError('请选择有效章节')
+                        if int(value):selected=choices[int(value)-1]
+                    if selected:
+                        from astralogue.arcs.session import ArcSession
+                        old=store.progress(account)['save_json']
+                        rt=ArcSession(pack,selected[0]);rt.state.node=selected[1]['entry']
+                        if old:
+                            previous=json.loads(old)
+                            profile=previous['state']['variables'].get('player_profile')
+                            if profile:rt.state.variables['player_profile']=profile
+                        if rt.avatars and not rt.profile.name_confirmed and selected[1]['task']>0:
+                            rt.profile_migration=True;rt.state.variables['profile_migration_required']=True
+                        rt.migrations.append({'manual_chapter_selection':{'mission':selected[0],'entry':selected[1]['entry']},
+                                              'policy':'explicit_user_navigation; not a game control edge'})
+                        store.reset_progress(account)
+                    progress = AccountProgress(store, account, pack)
+                    if selected:
+                        if seed is not None:raise ValueError('章节选择不能同时导入存档')
+                        progress.save(rt)
+                    else:rt = progress.open(seed)
                     seed = None
                     result = interact(rt, directory/'unused', directory/'unused', debug, account=progress)
                 if result == 'eof': return

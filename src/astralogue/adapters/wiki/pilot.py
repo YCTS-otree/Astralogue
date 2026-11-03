@@ -1,6 +1,7 @@
 """Bounded, resumable BWIKI acquisition. No runtime or automatic startup hooks."""
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import random
 from pathlib import Path
 import hashlib
 import json
@@ -80,7 +81,7 @@ class Pilot:
         return self.db.execute('SELECT value FROM settings WHERE key=?', ('state',)).fetchone()[0]
 
     def status(self):
-        return {'state': self.state(), 'requests': self.db.execute("SELECT COUNT(*) FROM requests WHERE outcome != 'completed'").fetchone()[0],
+        return {'state': self.state(), 'settings':dict(self.db.execute('SELECT key,value FROM settings')), 'requests': self.db.execute("SELECT COUNT(*) FROM requests WHERE outcome != 'completed'").fetchone()[0],
                 'pages': [dict(r) for r in self.db.execute('SELECT * FROM pages ORDER BY rowid')]}
 
     def cache_path(self, title):
@@ -88,7 +89,7 @@ class Pilot:
 
     def import_page(self, path: Path):
         raw = path.read_bytes(); p = json.loads(raw)['parse']; title = p['title']
-        if title not in (CHAPTER, *TITLES): raise ValueError('Page outside chapter scope')
+        if title not in (CHAPTER, *TITLES) and not self.db.execute('SELECT 1 FROM pages WHERE title=?',(title,)).fetchone(): raise ValueError('Page outside confirmed queue scope')
         if not isinstance(p['pageid'], int) or not isinstance(p['revid'], int) or not isinstance(p['wikitext']['*'], str):
             raise ValueError('Incomplete MediaWiki snapshot')
         dest = self.cache_path(title); atomic(dest, raw)
@@ -118,7 +119,15 @@ class Pilot:
             try:
                 if file_hash(path) != r['sha256']: raise ValueError('Snapshot hash mismatch')
                 data = load_json(path); text = data['parse']['wikitext']['*']
-                if r['title'] == CHAPTER:
+                if r['title'] == '开拓任务':
+                    from .pilot_catalogue import mission_links
+                    found=mission_links(data['parse'].get('text',{}).get('*',''))
+                    if not found:raise ValueError('No recognized mission catalogue structure')
+                    with self.db:
+                        for title,chapter in found:
+                            self.db.execute('INSERT OR IGNORE INTO pages(title,chapter) VALUES(?,?)',(title,chapter))
+                    result={'confirmed_missions':found,'target_version':'4.5','version_verified':False}
+                elif r['title'] == CHAPTER:
                     # Titles must actually occur as Wiki links in the chapter index.
                     import re
                     links = {m.group(1).split('|')[0].split('#')[0].strip() for m in re.finditer(r'\[\[([^\]]+)\]\]', text)}
@@ -134,18 +143,57 @@ class Pilot:
                             if title in links: self.db.execute('INSERT OR IGNORE INTO pages(title,chapter) VALUES(?,?)', (title, '100001'))
                     result = {'confirmed_titles': [t for t in TITLES if t in links], 'missing_titles': [t for t in TITLES if t not in links]}
                     if result['missing_titles']: raise ValueError('Chapter index does not confirm all requested titles: '+str(result))
-                else: result = classify_page(parse_page(path))
+                else:
+                    try:result = classify_page(parse_page(path))
+                    except ValueError as e:
+                        result={'title':r['title'],'unparsed_structure':str(e),'raw_cache':r['cache'],'not_executable':True}
+                    import re
+                    version=re.search(r'\|所属版本\s*=\s*([0-9]+\.[0-9]+)',text)
+                    result['declared_game_version']=version[1] if version else None
+                    result['within_target_version']=bool(version and tuple(map(int,version[1].split('.'))) <= (4,5))
                 out = path.with_suffix('.parsed.json'); atomic(out, (canonical(result)+'\n').encode())
                 with self.db: self.db.execute('UPDATE pages SET status=?,parsed=?,error=NULL WHERE title=?', ('VALIDATED', str(out.relative_to(self.root)), r['title']))
             except (ValueError, KeyError, OSError) as e:
                 with self.db: self.db.execute('UPDATE pages SET status=?,error=? WHERE title=?', ('FAILED', 'Local parse: '+str(e), r['title']))
 
     def due(self, now):
+        if not self.work_window(now):return False
+        configured=self.db.execute("SELECT value FROM settings WHERE key='daily_budget'").fetchone()
+        if configured:self.budget=int(configured[0])
         rows = list(self.db.execute('SELECT at,outcome FROM requests ORDER BY at DESC'))
         today = datetime.fromtimestamp(now, timezone.utc).date()
         count = sum(datetime.fromtimestamp(r['at'], timezone.utc).date() == today and r['outcome'] != 'completed' for r in rows)
         if count >= self.budget: return False
         return not rows or now >= rows[0]['at'] + self.interval
+
+    def work_window(self, now):
+        enabled=self.db.execute("SELECT value FROM settings WHERE key='work_schedule'").fetchone()
+        if not enabled:return True
+        local=datetime.fromtimestamp(now,timezone(timedelta(hours=8)))
+        if not (8<=local.hour<12 or 14<=local.hour<22):return False
+        row=self.db.execute("SELECT value FROM settings WHERE key='work_cycle'").fetchone()
+        cycle=json.loads(row[0]) if row else {}
+        if now<cycle.get('rest_until',0):return False
+        if now<cycle.get('work_until',0):
+            if 'quota' not in cycle:
+                cycle.update(quota=random.randint(4,5),pages=0)
+                with self.db:self.db.execute("INSERT OR REPLACE INTO settings VALUES('work_cycle',?)",(canonical(cycle),))
+            return cycle.get('pages',0)<cycle['quota']
+        if cycle.get('work_until',0)>cycle.get('rest_until',0):
+            cycle={'rest_until':cycle['work_until']+random.randint(600,1200)}
+            allowed=False
+        else:
+            cycle={'work_until':now+random.randint(600,900),'quota':random.randint(4,5),'pages':0}
+            allowed=True
+        with self.db:self.db.execute("INSERT OR REPLACE INTO settings VALUES('work_cycle',?)",(canonical(cycle),))
+        if not allowed and now>=cycle['rest_until']:return self.work_window(now)
+        return allowed
+
+    def count_cycle_page(self):
+        row=self.db.execute("SELECT value FROM settings WHERE key='work_cycle'").fetchone()
+        if row:
+            cycle=json.loads(row[0]);cycle['pages']=cycle.get('pages',0)+1
+            with self.db:self.db.execute("INSERT OR REPLACE INTO settings VALUES('work_cycle',?)",(canonical(cycle),))
 
     def tick(self, proxy=None, now=None):
         now = time.time() if now is None else now
@@ -153,7 +201,19 @@ class Pilot:
         if self.state() != 'running': return False
         row = self.db.execute("SELECT * FROM pages WHERE status='PENDING' AND next_at<=? ORDER BY rowid LIMIT 1", (now,)).fetchone()
         if row is None:
-            if not self.db.execute("SELECT 1 FROM pages WHERE status IN ('PENDING','FETCHING')").fetchone(): self.state('completed' if all(r['status']=='VALIDATED' for r in self.status()['pages']) else 'paused')
+            if not self.db.execute("SELECT 1 FROM pages WHERE status IN ('PENDING','FETCHING')").fetchone():
+                target=self.db.execute("SELECT value FROM settings WHERE key='target_version'").fetchone()
+                if target:
+                    versions=[]
+                    for page in self.status()['pages']:
+                        if page['parsed']:
+                            versions.append(load_json(self.root/page['parsed']).get('declared_game_version'))
+                    if '4.5' in versions and all(p['status']=='VALIDATED' for p in self.status()['pages']):
+                        self.state('completed');return False
+                    # Check for new catalogue content once a day while waiting
+                    # for the requested version; never claim future coverage.
+                    with self.db:self.db.execute("UPDATE pages SET status='PENDING',next_at=? WHERE title='开拓任务'",(now+86400,))
+                else:self.state('completed' if all(r['status']=='VALIDATED' for r in self.status()['pages']) else 'paused')
             return False
         if not self.due(now): return False
         robots = self.root / 'robots.txt'
@@ -176,6 +236,7 @@ class Pilot:
                 data = json.loads(raw)
                 if data.get('parse',{}).get('title') != title: raise ValueError('API page title mismatch or missing page')
                 dest = self.cache_path(title); atomic(dest, raw); self.import_page(dest)
+                self.count_cycle_page()
             else:
                 if b'User-agent:' not in raw and b'user-agent:' not in raw: raise ValueError('Unrecognized robots response')
                 atomic(robots, raw)

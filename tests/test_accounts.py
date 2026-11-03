@@ -12,6 +12,30 @@ from astralogue.runtime import DialogueEvent, ChoiceEvent, EndEvent
 from astralogue.storypack import StoryPack
 
 
+def test_bootstrap_account_and_explicit_reset(pack_path,tmp_path):
+    with AccountStore(tmp_path) as store,StoryPack(pack_path) as pack:
+        account=store.login('0',bytes(range(48,56)).decode())
+        progress=AccountProgress(store,account,pack);rt=progress.open();rt.next();progress.save(rt)
+        rev=store.progress(account)['revision']
+        with store.lock(account):store.reset_progress(account)
+        assert store.progress(account)['save_json'] is None and store.progress(account)['pack_id'] is None
+        assert store.progress(account)['revision']>rev
+        assert AccountProgress(store,account,pack).open().state.node=='a'
+
+
+def test_zero_account_real_chapter_navigation(tmp_path):
+    path=Path('data/packs/prologue-exploration-v112.storypack')
+    if not path.exists():pytest.skip('Real prologue pack unavailable')
+    args=['start','--pack',str(path),'--accounts-dir',str(tmp_path)]
+    password=bytes(range(48,56)).decode()
+    result=CliRunner().invoke(app,args,input='1\n0\n'+password+'\n2\n:quit\n0\n')
+    assert result.exit_code==0,repr(result.exception)
+    assert '章节 / 小节选择' in result.output and '漩涡止于中心' in result.output
+    with AccountStore(tmp_path) as store:
+        data=json.loads(store.progress(store.login('0',password))['save_json'])
+        assert data['arc_session']['migrations'][0]['manual_chapter_selection']
+
+
 def test_registration_login_password_and_unique_normalized_name(tmp_path):
     with AccountStore(tmp_path) as store:
         a=store.register('小星','test password')
