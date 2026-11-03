@@ -2,7 +2,7 @@
 
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.13.1**，StoryPack Schema **1**。
+当前版本 **1.14.0**，StoryPack Schema **1**。
 
 直接打开即可注册或登录本地账号：
 
@@ -319,3 +319,7 @@ TalkSentence 收录不等于已证明引用，更不等于主线覆盖。未知�
 ### BWIKI 后台 Pilot 与自由探索（1.13.0）
 
 详见 [采集、恢复、离线构建与探索指南](docs/bwiki-background-pilot.md)。显式启动低频 Worker，默认仅序章；新探索包使用独立账号目录，原包和旧账号继续可用。未知游戏世界条件保留 unknown，可选内容仅作为 Reader 阅读入口。
+
+### 双击即玩
+
+直接双击根目录 `Astralogue.cmd`，可复制到桌面或任意文件夹，无需参数。沿用项目环境、源码和存档；正常源码更新后仍可启动。LLM 可在持续 PTY 会话内运行同一文件，详见 [启动器说明](docs/launcher.md)。

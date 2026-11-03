@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "astralogue"
-version = "1.13.1"
+version = "1.14.0"
 description = "Offline, extensible interactive narrative engine"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,4 +24,4 @@ testpaths = ["tests"]
 packages = ["src/astralogue"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/", "tests/", "docs/", "tools/", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock"]
+include = ["src/", "tests/", "docs/", "tools/", "Astralogue.cmd", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock"]
