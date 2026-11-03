@@ -64,6 +64,13 @@ class AccountStore:
         with self.con:
             self.con.execute('INSERT OR IGNORE INTO accounts(id,name,login,salt,password_hash) VALUES(?,?,?,?,?)',
                              (uuid.uuid4().hex,'0','0',BOOTSTRAP_SALT,BOOTSTRAP_HASH))
+            self.con.execute('CREATE TABLE IF NOT EXISTS account_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+            if not self.con.execute("SELECT 1 FROM account_settings WHERE key='bootstrap_zero_v1'").fetchone():
+                # Existing databases may already contain a user named 0. Apply
+                # the explicitly requested default credential once, preserving
+                # its identity, progress, revision and all other accounts.
+                self.con.execute("UPDATE accounts SET salt=?,password_hash=? WHERE login='0'",(BOOTSTRAP_SALT,BOOTSTRAP_HASH))
+                self.con.execute("INSERT INTO account_settings VALUES('bootstrap_zero_v1','applied')")
 
     def __enter__(self): return self
     def __exit__(self, *args): self.con.close()

@@ -23,6 +23,20 @@ def test_bootstrap_account_and_explicit_reset(pack_path,tmp_path):
         assert AccountProgress(store,account,pack).open().state.node=='a'
 
 
+def test_existing_zero_credential_migration_preserves_progress(pack_path,tmp_path):
+    from astralogue.accounts import password_hash
+    with AccountStore(tmp_path) as store,StoryPack(pack_path) as pack:
+        account=store.login('0',bytes(range(48,56)).decode())
+        progress=AccountProgress(store,account,pack);rt=progress.open();rt.next();progress.save(rt)
+        before=store.progress(account)
+        with store.con:
+            store.con.execute("UPDATE accounts SET password_hash=? WHERE id=?",(password_hash('different old credential','00'*16),account.id))
+            store.con.execute("DELETE FROM account_settings WHERE key='bootstrap_zero_v1'")
+    with AccountStore(tmp_path) as store:
+        assert store.login('0',bytes(range(48,56)).decode())==account
+        assert store.progress(account)==before
+
+
 def test_zero_account_real_chapter_navigation(tmp_path):
     path=Path('data/packs/prologue-exploration-v112.storypack')
     if not path.exists():pytest.skip('Real prologue pack unavailable')
