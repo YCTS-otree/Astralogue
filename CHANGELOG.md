@@ -220,3 +220,17 @@
 ### Fixed
 - Normal reading skips the explicitly optional carrier-selection waiting dialogue via its existing skip edge. Debug retains access to the source archive; no timer semantics are invented.
 - Existing StoryPacks and account bindings remain unchanged.
+
+## v1.12.0 - 2026-11-03
+
+### Added
+- 序章 BWIKI 后台 Worker、SQLite 持久队列、robots 检查、120 秒限速、缓存校验及中断恢复。
+- 离线场景分类与独立探索包编译，两个来源明确的可选互动可返回菜单并保存已读状态。
+- 七任务离线结构报告与 Local Narrative Auditor 接口路线图（无模型执行）。
+
+### Fixed
+- 阿兰错误方向额外回应不再默认串入新探索包主线。
+- 玩家回归验证明确排除载体选择的九句等待彩蛋，不把它们计入普通阅读路径。
+
+### Notes
+- Runtime、StoryPack Schema 1 及旧包不变；新图需独立账号或显式文件存档迁移，未知世界条件不提升为原生事实。

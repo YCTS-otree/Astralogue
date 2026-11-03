@@ -154,8 +154,9 @@ if __name__=='__main__':
         for selection in combinations:
             result=advance(ArcSession(p,mid),selection)
             assert result['entered']==result['exited']==list(range(7))
-        # Default source path has no loss; optional idle content is explicitly viewed.
-        default=advance(ArcSession(p,mid));assert len(default['covered'])==941
+        # Ordinary reading skips the explicitly archived carrier waiting thresholds.
+        idle=p.metadata['player_reader']['report']['optional_idle']['source_span']
+        default=advance(ArcSession(p,mid));assert len(default['covered'])==941-(idle[1]-idle[0]+1)
         original=Counter()
         b=p.bundle()
         for n in b.nodes:

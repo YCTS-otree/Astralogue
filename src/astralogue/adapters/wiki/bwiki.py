@@ -110,7 +110,14 @@ def dialogue_body(text):
         if not line.strip(): continue
         m = re.fullmatch(r'\*([^：\n]+)：(.*)', line.strip())
         if not m: unknown.append(line); continue
-        parsed = inline(m[2]); rows.append({'speaker': m[1], **parsed})
+        try:
+            parsed = inline(m[2])
+        except ValueError:
+            # A nested multiline template may begin on a speaker line. Keep
+            # the complete parent raw structure; never flatten its branches.
+            unknown.append(line)
+            continue
+        rows.append({'speaker': m[1], **parsed})
         unknown += parsed['unknown']
     return rows, unknown
 

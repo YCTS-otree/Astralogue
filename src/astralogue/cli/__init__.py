@@ -229,7 +229,10 @@ def interact(rt: Runtime, save_path: Path, autosave: Path, debug: bool = False, 
                 node=rt.pack.node(event.node);action=node.data.get('reader_action');message=node.data.get('reader_message')
                 if debug and message:console.print('[Reader] '+message,markup=False)
                 elif not debug:
-                    if action=='optional_inquiry':console.print('可逐一询问，也可选择继续。',markup=False)
+                    if action=='free_exploration':
+                        console.print('【自由探索】'+node.data.get('scene_title',''),markup=False)
+                        console.print('可选择额外互动，或直接推进主线。',markup=False)
+                    elif action=='optional_inquiry':console.print('可逐一询问，也可选择继续。',markup=False)
                     elif action=='optional_idle_dialogue':console.print('等待时的可选对白：查看或继续剧情。',markup=False)
                     elif action in {'manual_guide','user_order','community_patch','track_selection'}:console.print('当前阅读关系尚未确定；请选择采用的阅读方向。',markup=False)
                     elif action in {'confirmation','unknown_marker'}:console.print('暂停条件尚未恢复；确认后继续阅读。',markup=False)
@@ -388,3 +391,6 @@ app.add_typer(hf_app, name='hf')
 from astralogue.arcs.session import session, load_session
 from astralogue.arcs.cli import app as arcs_app
 app.add_typer(arcs_app, name="arcs")
+
+from astralogue.adapters.wiki.pilot_cli import app as bwiki_app
+app.add_typer(bwiki_app, name="bwiki")
