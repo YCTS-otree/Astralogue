@@ -45,7 +45,10 @@ def test_feedback_result_still_requires_new_human_review(tmp_path):
         job=submit_feedback(s,'earlier','request_changes','human','只修改真实节点，不新增文字。')
         scope=s.db.execute('SELECT scope FROM jobs WHERE id=?',(job,)).fetchone()[0]
         run(s,FakeProvider(),1,scope=scope)
-        child=s.db.execute('SELECT status,payload FROM proposals WHERE job=?',(job,)).fetchone()
+        next_job=s.db.execute("SELECT id,scope FROM jobs WHERE scope LIKE 'human_feedback:related:%'").fetchone()
+        assert next_job and not s.db.execute('SELECT 1 FROM proposals WHERE job=?',(job,)).fetchone()
+        run(s,FakeProvider(),1,scope=next_job['scope'])
+        child=s.db.execute('SELECT status,payload FROM proposals WHERE job=?',(next_job['id'],)).fetchone()
         assert child['status']=='pending' and json.loads(child['payload'])['context']['parent_proposal']=='earlier'
         assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='awaiting_revision'
 

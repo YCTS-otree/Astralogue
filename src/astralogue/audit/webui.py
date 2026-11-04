@@ -85,10 +85,14 @@ def make_server(path, port=8340):
                     for selected_id in ids:
                         current=rows.get(selected_id)
                         if not current:raise ValueError('未找到提案')
+                        if current['row']['status']=='withdrawn':raise ValueError('此申请已随研究撤回，请从原研究重新申请')
                         published=store.db.execute('SELECT status FROM publications WHERE proposal=?',(selected_id,)).fetchone()
                         if action in {'reject','edit','defer','request_changes'} and published and published[0] in {'published','already_published'}:raise ValueError('此提案已发布，请先回滚对应修订，再修改审核结论。')
                         if action=='approve' and not current['ready']:raise ValueError('所选项包含尚无具体修改位置的提案；本批次未保存。')
-                    if action in {'request_changes','research_approve'}:
+                    if action in {'undo_reject','undo_research'}:
+                        from .undo import undo
+                        undo_result=undo(store,pid,action,reviewer)
+                    elif action in {'request_changes','research_approve'}:
                         if len(ids)!=1:raise ValueError('评论修订请逐项提交')
                         from .feedback import submit_feedback
                         submit_feedback(store,pid,action,reviewer,data.get('comment',[''])[0],data.get('provider',['local'])[0])
@@ -107,10 +111,11 @@ def make_server(path, port=8340):
                         publication=publish_approved(store,ids)
                     store.setting('webui_reviewer', reviewer)
                 if 'application/json' in self.headers.get('Accept',''):
-                    label={'approve':'通过','reject':'驳回','defer':'暂缓','acknowledge':'记为已阅','edit':'保存修改','request_changes':'提交修改意见，等待模型修订','research_approve':'提交研究方向，等待模型生成具体修改'}[action]
+                    label={'undo_reject':'撤销驳回，恢复待审核','undo_research':'撤销研究及其后续申请','approve':'通过','reject':'驳回','defer':'暂缓','acknowledge':'记为已阅','edit':'保存修改','request_changes':'提交修改意见，等待模型修订','research_approve':'提交研究方向，等待模型生成具体修改'}[action]
                     published=sum(r['status'] in {'published','already_published'} for r in publication)
                     failed=[r for r in publication if r['status']=='failed']
-                    extra=(f' 已发布 {published} 项。' if publication else '')+(' 发布失败：'+'；'.join(r['error'] for r in failed) if failed else '')
+                    undo_note=(f" 连带撤回 {undo_result['withdrawn']} 份申请，取消 {undo_result['cancelled_jobs']} 个任务。" if action in {'undo_reject','undo_research'} else '')
+                    extra=undo_note+(f' 已发布 {published} 项。' if publication else '')+(' 发布失败：'+'；'.join(r['error'] for r in failed) if failed else '')
                     self.send(200,json.dumps({'message':f'提交成功：已{label} {len(ids)} 项，审核记录已保存。'+extra,'count':len(ids),'publication_failed':bool(failed)},ensure_ascii=False),'application/json; charset=utf-8')
                     return
                 self.send_response(303)

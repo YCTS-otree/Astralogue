@@ -8,18 +8,21 @@ from .protocol import RESPONSE_SCHEMA,validate_schema
 
 def review(store,pid,action,reviewer,suggestion=None):
     if action not in {'approve','reject','defer','edit','acknowledge'} or not reviewer.strip():raise ValueError('Explicit reviewer and decision required')
-    row=store.db.execute('SELECT * FROM proposals WHERE id=?',(pid,)).fetchone()
-    if row is None:raise ValueError('Unknown proposal')
-    before=row['payload'];payload=json.loads(before)
-    if suggestion is not None:
-        validate_schema(suggestion,RESPONSE_SCHEMA['properties']['proposals']['items'])
-        ctx=payload['context']
-        aliases=set(ctx['instances'])|set(ctx.get('reference_instances',{}))
-        if set(suggestion['instances'])-aliases or set(suggestion['targets'])-(aliases|set(ctx.get('scenes',{}))) or set(suggestion['evidence'])-set(ctx['evidence']):raise ValueError('Invented proposal reference')
-        payload['suggestion']=suggestion
-        if action!='edit':raise ValueError('Edited proposal must be reviewed again separately')
-    status={'approve':'approved','reject':'rejected','defer':'deferred','edit':'pending','acknowledge':'acknowledged'}[action]
     with store.db:
+        if not store.db.in_transaction:store.db.execute('BEGIN IMMEDIATE')
+        row=store.db.execute('SELECT * FROM proposals WHERE id=?',(pid,)).fetchone()
+        if row is None:raise ValueError('Unknown proposal')
+        if row['deleted_at'] is not None:raise ValueError('申请已从列表删除，历史只读；请重新发起审查')
+        if row['status']=='withdrawn':raise ValueError('所属研究已撤销，请从原研究重新申请')
+        before=row['payload'];payload=json.loads(before)
+        if suggestion is not None:
+            validate_schema(suggestion,RESPONSE_SCHEMA['properties']['proposals']['items'])
+            ctx=payload['context']
+            aliases=set(ctx['instances'])|set(ctx.get('reference_instances',{}))
+            if set(suggestion['instances'])-aliases or set(suggestion['targets'])-(aliases|set(ctx.get('scenes',{}))) or set(suggestion['evidence'])-set(ctx['evidence']):raise ValueError('Invented proposal reference')
+            payload['suggestion']=suggestion
+            if action!='edit':raise ValueError('Edited proposal must be reviewed again separately')
+        status={'approve':'approved','reject':'rejected','defer':'deferred','edit':'pending','acknowledge':'acknowledged'}[action]
         store.db.execute('UPDATE proposals SET payload=?,status=?,reviewer=?,reviewed_at=? WHERE id=?',(canonical(payload),status,reviewer,time.time(),pid))
         store.db.execute('INSERT INTO review_log(proposal,action,reviewer,at,before,after) VALUES(?,?,?,?,?,?)',(pid,action,reviewer,time.time(),before,canonical(payload)))
 

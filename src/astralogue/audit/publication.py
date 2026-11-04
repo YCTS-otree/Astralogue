@@ -172,3 +172,24 @@ def publish_approved(store,ids):
         with store.db:store.db.execute('INSERT OR REPLACE INTO publications VALUES(?,?,?,?)',(pid,result['status'],canonical(result),time.time()))
         outcomes.append(result)
     return outcomes
+
+def rollback_research(path,proposals):
+    """Revert only a contiguous suffix owned by this research, atomically."""
+    con=connection(path)
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        active=con.execute('SELECT * FROM reader_revisions WHERE rolled_back=0 ORDER BY revision DESC').fetchall()
+        selected=[r for r in active if r['proposal'] in proposals]
+        if not selected:con.rollback();return []
+        cutoff=min(r['revision'] for r in selected)
+        suffix=[r for r in active if r['revision']>=cutoff]
+        if any(r['proposal'] not in proposals for r in suffix):raise ValueError('后续已有其他研究的已发布修订；请先按历史顺序回滚，整次研究撤销未执行。')
+        for row in suffix:
+            delta=json.loads(zlib.decompress(row['delta']))
+            if digest(delta)!=row['sha256']:raise ValueError('发布历史校验失败，撤销未执行')
+            apply_rows(con,list(reversed(delta)),True)
+            con.execute('UPDATE reader_revisions SET rolled_back=1 WHERE revision=?',(row['revision'],))
+        con.commit();con.execute('PRAGMA wal_checkpoint(PASSIVE)')
+        return [r['proposal'] for r in suffix]
+    except Exception:con.rollback();raise
+    finally:con.close()

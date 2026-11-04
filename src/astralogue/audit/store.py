@@ -30,6 +30,14 @@ class AuditStore:
         version=self.db.execute('PRAGMA user_version').fetchone()[0]
         if version not in {0,1}:self.db.close();raise ValueError('Unsupported narrative audit schema')
         self.db.executescript(DDL);self.db.execute('PRAGMA user_version=1')
+        with self.db:
+            if not self.db.in_transaction:self.db.execute('BEGIN IMMEDIATE')
+            for table,fields in [('proposals',{'created_at':'REAL','deleted_at':'REAL'}),('jobs',{'created_at':'REAL'})]:
+                columns={r[1] for r in self.db.execute('PRAGMA table_info('+table+')')}
+                for name,typ in fields.items():
+                    if name not in columns:self.db.execute('ALTER TABLE '+table+' ADD COLUMN '+name+' '+typ)
+                self.db.execute("CREATE TRIGGER IF NOT EXISTS "+table+"_submitted_at AFTER INSERT ON "+table+" WHEN NEW.created_at IS NULL BEGIN UPDATE "+table+" SET created_at=(julianday('now')-2440587.5)*86400.0 WHERE id=NEW.id; END")
+
     def close(self):self.db.close()
     def __enter__(self):return self
     def __exit__(self,*args):self.close()
@@ -48,12 +56,14 @@ class AuditStore:
         self.db.execute('INSERT OR IGNORE INTO jobs(id,pass,scope,context,deps) VALUES(?,?,?,?,?)',(jid,pass_,scope,canonical(context),canonical(list(deps))))
         return jid
     def report(self):
-        def groups(table,col):return dict(self.db.execute(f'SELECT {col},COUNT(*) FROM {table} GROUP BY {col}'))
+        def groups(table,col):
+            where=' WHERE deleted_at IS NULL' if table=='proposals' else ''
+            return dict(self.db.execute(f'SELECT {col},COUNT(*) FROM {table}{where} GROUP BY {col}'))
         calls=self.db.execute('SELECT COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),COALESCE(SUM(cost),0),COALESCE(SUM(seconds),0) FROM calls').fetchone()
         return {'sources':groups('sources','status'),'records_by_kind':groups('records','kind'),'records_by_scope':groups('records','scope'),
             'source_rows_traversed':self.db.execute('SELECT COALESCE(SUM(rows),0) FROM sources').fetchone()[0],
             'receipt_rows':self.db.execute('SELECT COALESCE(SUM(count),0) FROM receipts').fetchone()[0],
-            'jobs':groups('jobs','status'),'proposals':groups('proposals','status'),'tokens_in':calls[0],'tokens_out':calls[1],
+            'jobs':groups('jobs','status'),'proposals':groups('proposals','status'),'archived_proposals':self.db.execute('SELECT COUNT(*) FROM proposals WHERE deleted_at IS NOT NULL').fetchone()[0],'tokens_in':calls[0],'tokens_out':calls[1],
             'api_cost':calls[2],'inference_seconds':calls[3],
             'llm_reviewed_jobs_by_scope':dict(self.db.execute("SELECT scope,COUNT(*) FROM jobs WHERE status='done' GROUP BY scope")),
             'human_review_is_not_game_verification':True}

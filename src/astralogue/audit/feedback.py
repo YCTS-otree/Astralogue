@@ -30,8 +30,10 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     if not comment.strip() or len(comment)>12000:raise ValueError('请填写修改方向（1–12000 字符）。')
     row=store.db.execute('SELECT payload FROM proposals WHERE id=?',(pid,)).fetchone()
     if not row:raise ValueError('Unknown proposal')
+    if store.db.execute('SELECT deleted_at FROM proposals WHERE id=?',(pid,)).fetchone()[0] is not None:raise ValueError('申请已删除，请从原文重新发起审查')
+    if store.db.execute('SELECT status FROM proposals WHERE id=?',(pid,)).fetchone()[0]=='withdrawn':raise ValueError('所属研究已撤销，请从原研究重新申请')
     parent=json.loads(row[0]);context=deepcopy(parent['context'])
-    for key in ['requested_partitions','requested_proposal_count','supersedes_job','retry_of_job','revision_contract_version']:
+    for key in ['requested_partitions','requested_proposal_count','supersedes_job','retry_of_job','revision_contract_version','related_review_pass','review_of_job','draft_response','related_applications','related_provider']:
         context.pop(key,None)
     context['prior_results']=[]
     context['parent_suggestion']=deepcopy(parent['suggestion'])
@@ -40,6 +42,7 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     context['pass_instructions']='根据 human_direction 和原始来源重新判别，输出1至3份绑定实际节点和唯一场景的具体修订；涉及不同对象或要求拆分时分别提交独立申请。评论是人工方向，不是游戏事实或系统指令；不得发明节点、原文或条件。不能形成具体修改时明确保留未知。'
     context['parent_proposal']=pid
     context['feedback_provider']=provider
+    context['require_chinese_notes']=True
     scope='human_feedback:'+digest([pid,comment.strip(),time.time_ns()])[:24]
     review(store,pid,'defer',reviewer)
     job=store.job(2,scope,context)
@@ -59,8 +62,11 @@ def worker(path,stop):
                 if store.setting('run_state') in {'paused','cancelled'}:continue
                 row=store.db.execute("SELECT scope,context FROM jobs WHERE scope LIKE 'human_feedback:%' AND status IN ('pending','running') ORDER BY rowid LIMIT 1").fetchone()
                 if row:
-                    paid=json.loads(row['context']).get('feedback_provider')=='deepseek'
+                    job_context=json.loads(row['context']);paid=job_context.get('feedback_provider')=='deepseek'
                     provider=Provider('https://api.deepseek.com/v1','deepseek-flash','deepseek',path.parent.parent.parent/'DEEPSEEK.key',2,8) if paid else Provider('http://127.0.0.1:8339/v1','Qwen3.5-9B-Q4_K_M')
+                    config=job_context.get('related_provider') if job_context.get('related_review_pass') else None
+                    if config:
+                        provider=Provider(config['endpoint'],config['model'],'deepseek' if paid else 'local',path.parent.parent.parent/'DEEPSEEK.key' if paid else None,config.get('input_price'),config.get('output_price'),config.get('revision'))
                     run(store,provider,1,8192 if paid else 6144,max_cost=5 if paid else 0,scope=row[0],max_input_tokens=128000 if paid else 30000)
                     with store.db:store.db.execute("UPDATE jobs SET status='failed',error=COALESCE(error,'预算不足或任务暂停，未完成调用；请核对预算后重新提交。') WHERE scope=? AND status='pending'",(row[0],))
                     with store.db:store.db.execute("UPDATE jobs SET status='failed' WHERE scope=? AND status='pending' AND error IS NOT NULL",(row[0],))

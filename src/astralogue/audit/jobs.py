@@ -139,7 +139,7 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                 prior_context=json.loads(dep['context'])
                 deps.append({'job':jid,'pass':dep['pass'],'instance_bindings':{a:{k:v for k,v in instance.items() if k in {'node','id','record_id','title','label'}} for a,instance in prior_context['instances'].items()},'result':json.loads(dep['result'])})
             else:
-                context=json.loads(row['context']);context['prior_results']=deps
+                context=json.loads(row['context']);context['prior_results']=deps;context['require_chinese_notes']=True
                 prompt=messages(context,row['pass']);estimate=sum(len(m['content'].encode('utf8')) for m in prompt)
                 # Conservative upper bound; server performs actual token/context checks.
                 if estimate>max_input_tokens*3:
@@ -175,12 +175,20 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                     if provider.name=='deepseek':store.setting('deepseek_committed_upper_cny',(store.setting('deepseek_committed_upper_cny') or 0)-worst+metrics['cost'])
                     spent+=metrics['cost'];done+=1
                     with store.db:
+                        if not store.db.in_transaction:store.db.execute('BEGIN IMMEDIATE')
+                        if store.db.execute('SELECT status FROM jobs WHERE id=?',(row['id'],)).fetchone()[0]=='cancelled':
+                            store.db.execute('INSERT INTO calls(job,provider,model,input_tokens,output_tokens,seconds,cost,cache_hit,error,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                                (row['id'],provider.name,provider.model,metrics['input_tokens'],metrics['output_tokens'],metrics['seconds'],metrics['cost'],metrics['cache_hit'],None,canonical({**metrics,'discarded_after_research_undo':True})))
+                            continue
                         store.db.execute("UPDATE jobs SET status='done',result=? WHERE id=?",(canonical(value),row['id']))
-                        for n,p in enumerate(value['proposals']):
-                            pid=digest([row['id'],n,p]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,'suggestion':p,'status':'pending','origin':'LLM','game_verified':False}
-                            store.db.execute('INSERT OR IGNORE INTO proposals(id,job,payload) VALUES(?,?,?)',(pid,row['id'],canonical(payload)))
-                        if context.get('supersedes_job'):
-                            store.db.execute("UPDATE proposals SET status='superseded' WHERE job=? AND status='pending'",(context['supersedes_job'],))
+                        from .related import stage
+                        staged=stage(store,row,context,value,provider)
+                        if not staged:
+                            for n,p in enumerate(value['proposals']):
+                                pid=digest([row['id'],n,p]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,'suggestion':p,'status':'pending','origin':'LLM','game_verified':False}
+                                store.db.execute('INSERT OR IGNORE INTO proposals(id,job,payload) VALUES(?,?,?)',(pid,row['id'],canonical(payload)))
+                            if context.get('supersedes_job'):
+                                store.db.execute("UPDATE proposals SET status='superseded' WHERE job=? AND status='pending'",(context['supersedes_job'],))
                         store.db.execute('INSERT INTO calls(job,provider,model,input_tokens,output_tokens,seconds,cost,cache_hit,error,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',
                             (row['id'],provider.name,provider.model,metrics['input_tokens'],metrics['output_tokens'],metrics['seconds'],metrics['cost'],metrics['cache_hit'],None,canonical({**metrics,'validated_response':value,'prompt_version':PROMPT_VERSION,'model_revision':getattr(provider,'revision',None)})))
                 except Exception as e:
@@ -189,7 +197,7 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                     preflight=isinstance(e,ProviderPreflightError)
                     if preflight and provider.name=='deepseek':store.setting('deepseek_committed_upper_cny',(store.setting('deepseek_committed_upper_cny') or 0)-worst)
                     with store.db:
-                        store.db.execute("UPDATE jobs SET status='failed',error=? WHERE id=?",(type(e).__name__+': '+str(e)[:300],row['id']))
+                        store.db.execute("UPDATE jobs SET status='failed',error=? WHERE id=? AND status!='cancelled'",(type(e).__name__+': '+str(e)[:300],row['id']))
                         store.db.execute('INSERT INTO calls(job,provider,model,input_tokens,output_tokens,seconds,cost,cache_hit,error,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',
                             (row['id'],provider.name,provider.model,metrics.get('input_tokens'),metrics.get('output_tokens'),time.perf_counter()-start,metrics.get('cost'),0,type(e).__name__,
                              canonical({'billable_usage_unknown':provider.name!='local' and not metrics and not preflight,'provider_metrics':metrics,'invalid_response':raw,'no_request_sent':preflight})))

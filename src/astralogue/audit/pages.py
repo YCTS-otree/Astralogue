@@ -55,9 +55,9 @@ def page(body):
 
 def baseline(store):return (store.setting('first_task_findings') or {}).get('path',[])
 
-def ordered(store):
+def ordered(store,include_deleted=False):
     path=baseline(store);tasks={p['task']:i for i,p in enumerate(store.setting('audit_plan') or [])};rows=[]
-    for r in store.db.execute('SELECT * FROM proposals'):
+    for r in store.db.execute('SELECT * FROM proposals'+('' if include_deleted else ' WHERE deleted_at IS NULL')):
         p=json.loads(r['payload']);loc=v.location(p,path);task=(p['context'].get('task') or {}).get('title','未归属任务');ready=v.reviewable(p)
         if ready and p['suggestion']['operation']=='move_to_optional_interaction':ready=v.windows(p,path)[2]
         rows.append({'row':dict(r),'payload':p,'location':loc,'task':task,'ready':ready})
@@ -88,7 +88,7 @@ def list_page(store,query):
         if '{{' in preview:preview=loc['label']
         if ctx.get('parent_proposal'):content+='<p class="pill">模型返修申请 · 需重新人工批准</p>'
         position='当前阅读路径第 '+str(loc['path_order']+1)+' 条' if loc['path_order'] is not None else '按来源小节位置排列；执行位置待核实'
-        content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
+        content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · 提交 '+v.esc(v.submission_time(item['row'].get('created_at')))+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
     if group:content+='</section>'
     content+='</form>'
     if not visible:content+='<div class="card">这一组暂时没有待处理项目，可以切换分类或查看已处理记录。</div>'
@@ -106,7 +106,7 @@ def list_page(store,query):
     return page(content+'<details><summary>审计进度与技术统计</summary><pre>'+v.esc(json.dumps(store.report(),ensure_ascii=False,indent=2))+'</pre></details>')
 
 def detail_page(store,pid,token,reviewer,context_count=3):
-    rows=ordered(store);item=next((r for r in rows if r['row']['id']==pid),None)
+    rows=ordered(store,include_deleted=True);item=next((r for r in rows if r['row']['id']==pid),None)
     if not item:return None
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
     before,after,contiguous=v.windows(p,baseline(store),context_count)
@@ -156,28 +156,37 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if wiki.get('label'):content+='<p class="source-note">来源栏目：'+v.esc(wiki['label'])+'</p>'
     content+='<p class="source-note">原游戏触发条件仍待核实。批准的是文字阅读安排。</p>'
     if suggestion['conflicts']:content+='<p class="notice">有 '+str(len(suggestion['conflicts']))+' 项冲突，无法判断时请暂缓。</p>'
+    content+='<p class="source-note">提交时间（北京时间）：'+v.esc(v.submission_time(row.get('created_at')))+'</p>'
     content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">批准后自动校验并增量发布到当前游玩包；失败原因会明确显示，不会清空存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
-    state=row['status'];locked=state in {'approved','rejected','awaiting_revision'}
-    labels={'approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
+    state=row['status'];deleted=bool(row.get('deleted_at'));locked=deleted or state in {'approved','rejected','awaiting_revision','withdrawn'}
+    labels={'withdrawn':'已随研究撤回','approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
     if locked:
-        content+='<button disabled>'+labels[state]+'</button>'
-        if state=='awaiting_revision':content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
+        content+='<button disabled>'+('已从列表删除' if deleted else labels[state])+'</button>'
+        if not deleted and state=='awaiting_revision':content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
     else:
         if ready:content+='<button class="primary" name="action" value="approve">批准</button><button name="action" value="request_changes">需要修改（提交评论）</button>'
         else:content+='<button class="primary" name="action" value="research_approve">批准研究方向（提交评论）</button>'
         content+='<button name="action" value="reject">驳回</button>'
+    if not deleted and state=='rejected':content+='<button name="action" value="undo_reject">撤销驳回，恢复待审核</button>'
+    if not deleted and store.db.execute("SELECT 1 FROM review_comments c JOIN jobs j ON j.id=c.job WHERE c.proposal=? AND c.action='research_approve' AND j.status!='cancelled'",(pid,)).fetchone():content+='<button name="action" value="undo_research">撤销研究批准及其后续申请</button>'
     content+='</div><label>判别模型 <select name="provider"><option value="local">本地离线模型（默认，无 API 费用）</option><option value="deepseek">DeepSeek v41f · 低推理（累计预算 5 元）</option></select></label><label>评论 / 修改方向（需要修改或批准研究方向时必填）<textarea name="comment" maxlength="12000" placeholder="请说明要改哪里、如何调整，以及依据。"></textarea></label></form></section>'
     publication=store.db.execute('SELECT result FROM publications WHERE proposal=?',(pid,)).fetchone()
     if publication:
         record=json.loads(publication[0]);content+='<p class="notice">'+('已发布到游玩包，修订 '+str(record.get('revision','')) if record['status'] in {'published','already_published'} else '批准已保存，但未发布：'+v.esc(record.get('error','未知错误')))+'</p>'
+    if ctx.get('related_applications'):
+        content+='<section class="card"><h3>生成前已额外复核的关联申请</h3>'
+        for related in ctx['related_applications']:
+            content+='<p><a href="/?id='+related['id']+'">关联申请</a> · '+v.esc(v.STATUS.get(related['status'],related['status']))+' · '+v.esc('、'.join(related['reasons']))+'</p>'
+        content+='</section>'
     comments=list(store.db.execute('SELECT c.*,j.status AS job_status,j.error AS job_error FROM review_comments c LEFT JOIN jobs j ON j.id=c.job WHERE c.proposal=? ORDER BY c.id',(pid,)))
     if comments:
         content+='<section class="card"><h2>人工评论与模型修订进度</h2>'
         for comment in comments:
-            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已提交新申请，请再次人工审核','failed':'模型处理失败，原建议未自动应用'}.get(comment['job_status'],'等待处理')
+            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已提交新申请，请再次人工审核','failed':'模型处理失败，原建议未自动应用','cancelled':'研究已撤销，任务已取消'}.get(comment['job_status'],'等待处理')
             content+='<h3>'+v.esc(comment['reviewer'])+'</h3><p>'+v.esc(comment['comment'])+'</p><p>'+status+'</p>'
             if comment['job']:
                 job=store.db.execute('SELECT context FROM jobs WHERE id=?',(comment['job'],)).fetchone()
+                if job and json.loads(job[0]).get('related_review_pass'):content+='<p>阶段：额外一轮关联复核（包含已批准申请）</p>'
                 provider=json.loads(job[0]).get('feedback_provider','local') if job else 'local'
                 content+='<p>使用模型：'+('DeepSeek v41f · 低推理' if provider=='deepseek' else '本地离线模型')+'</p>'
             if comment['job_error']:content+='<p class="notice">'+v.esc(comment['job_error'])+'</p>'
@@ -186,7 +195,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'
-    peers=[r for r in rows if r['ready']==ready];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
+    peers=[r for r in rows if r['ready']==ready and (row.get('deleted_at') or r['row'].get('deleted_at') is None)];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
     if index:content+='<a href="/?id='+peers[index-1]['row']['id']+'">← 上一片段</a>'
     if index+1<len(peers):content+='<a href="/?id='+peers[index+1]['row']['id']+'">下一片段 →</a>'
     return page(content+'</nav>')

@@ -13,9 +13,9 @@ def context():
 
 
 def response():
-    return {'classifications':[{'instance':'a','category':'OPTIONAL_NPC','evidence':['source'],'condition':'UNKNOWN','scenes':['phase'],'uncertainty':'timing unknown','counterevidence':[]}],
+    return {'classifications':[{'instance':'a','category':'OPTIONAL_NPC','evidence':['source'],'condition':'UNKNOWN','scenes':['phase'],'uncertainty':'触发时机未知','counterevidence':[]}],
             'proposals':[{'operation':'move_to_optional_interaction','instances':['a'],'targets':[],'evidence':['source'],
-                          'before':{'node':'real-node'},'after':{'phase':'real-phase'},'conflicts':[],'unknowns':['trigger'],'rationale':'Explicit optional source label'}]}
+                          'before':{'node':'real-node'},'after':{'phase':'real-phase'},'conflicts':[],'unknowns':['触发条件未知'],'rationale':'来源明确标记为额外互动'}]}
 
 
 def test_strict_schema_and_invented_references():

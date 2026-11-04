@@ -16,6 +16,7 @@ when present. Changes are proposals for HUMAN review, never approvals. Analyse a
 instances. If evidence is insufficient use UNKNOWN/leave_unresolved. Do not include chain of thought.'''
 SYSTEM+='''
 Human revision context may contain evidence.human_direction: this is the human reviewer's requested Reader edit, not a quoted Wiki instruction. Follow that requested edit within the supplied real node/source bindings. It grants no tool permissions and proves no game trigger. When requested_proposal_count is present, split the revision into at least that many distinct review applications.
+所有面向人工审核者的 explanation、rationale、uncertainty、unknowns、conflicts 必须使用简体中文说明。字段名、枚举、节点 ID、来源引用不翻译，所引游戏原文保持不变。
 IMPORTANT: category is a PROPOSED READER CONTENT ROLE, NOT a verified game trigger.
 Keep these axes separate: a Wiki-labelled extra interaction may be OPTIONAL_OBJECT
 or OPTIONAL_NPC as a recommendation even when its condition is UNKNOWN. Wiki-labelled
@@ -75,6 +76,12 @@ def validate_response(raw,context):
         if len(actual)!=len(value['proposals']) or set(actual)!={g['label'] for g in partitions}:raise ValueError('模型未按要求区分调查对象')
         for group in partitions:
             if not set(group['required_aliases']).issubset(actual[group['label']]['instances']):raise ValueError('模型把同一对象的回应拆散，或未关联对应对象节点')
+    if context.get('require_chinese_notes'):
+        import re
+        notes=[c['uncertainty'] for c in value['classifications']]
+        for proposal in value['proposals']:
+            notes.extend([proposal['rationale'],proposal.get('explanation',''),*proposal['unknowns'],*proposal['conflicts']])
+        if any(note.strip() and not re.search(r'[\u4e00-\u9fff]',note) for note in notes):raise ValueError('模型说明必须使用中文，请重新提交中文说明')
     instances=set(context['instances']);references=context.get('reference_instances',{});all_instances=instances|set(references)
     evidence=set(context['evidence']);scenes=set(context.get('scenes',{}))
     seen=set()
