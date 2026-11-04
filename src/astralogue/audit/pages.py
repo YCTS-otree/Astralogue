@@ -3,6 +3,7 @@ import json
 from . import presentation as v
 
 CSS='''
+.feedback{position:fixed;inset:18px 16px auto auto;z-index:1000;max-width:min(560px,calc(100vw - 32px));display:flex;align-items:center;gap:16px;padding:16px 20px;background:#e4f8ed;color:#155c36;border:2px solid #35a267;border-radius:12px;box-shadow:0 8px 30px #17203333;font-weight:700}.feedback[hidden]{display:none}.feedback.error{background:#fff0ee;border-color:#d94b40;color:#9b271d}.feedback button{background:transparent;border:0;font-size:24px;flex-shrink:0}
 *{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#25324a;font:16px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
 a{color:#345fe0;text-decoration:none}a:hover{text-decoration:underline}.shell{max-width:1120px;margin:auto;padding:26px}
 header{background:white;border-bottom:1px solid #dde4ef}.brand{font-size:20px;font-weight:700}.subtle,.crumb{color:#6b778d}
@@ -20,8 +21,31 @@ input,textarea,button{font:inherit;padding:10px;border:1px solid #cbd4e2;border-
 @media(max-width:820px){.review-grid{grid-template-columns:1fr}.shell{padding:16px}.proposal{grid-template-columns:1fr}aside{order:-1}h1{font-size:24px}}
 '''
 
+
+FEEDBACK = """
+<div id="review-feedback" class="feedback" role="status" aria-live="polite" hidden><span></span><button type="button" aria-label="关闭提交提示">×</button></div>
+<script>
+(()=>{
+ const box=document.getElementById('review-feedback');let timer;
+ function notify(message,error=false){clearTimeout(timer);box.querySelector('span').textContent=message;box.classList.toggle('error',error);box.hidden=false;if(!error)timer=setTimeout(()=>box.hidden=true,6000);}
+ box.querySelector('button').onclick=()=>box.hidden=true;
+ const saved=sessionStorage.getItem('audit-review-feedback');if(saved){sessionStorage.removeItem('audit-review-feedback');notify(saved);}
+ document.querySelectorAll('form[method="post"]').forEach(form=>form.addEventListener('submit',async event=>{
+  event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);
+  const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);notify('正在提交，请稍候…');
+  try{
+   const response=await fetch(form.action||location.href,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(data)});
+   const result=await response.json();if(!response.ok)throw new Error(result.message||'提交失败，未保存审核操作。');
+   sessionStorage.setItem('audit-review-feedback',result.message);location.reload();
+  }catch(error){notify(error.message==='Failed to fetch'?'网络连接失败，提交结果尚未确认，请检查记录后再重试。':error.message,true);}
+  finally{buttons.forEach(b=>b.disabled=false);}
+ }));
+})();
+</script>
+"""
+
 def page(body):
-    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Astralogue · 剧情审核</title><style>'+CSS+'</style><header><div class="shell toolbar"><span class="brand">Astralogue · 剧情审核</span><span class="subtle">看具体片段，决定怎样播放</span></div></header><main class="shell">'+body+'</main></html>'
+    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Astralogue · 剧情审核</title><style>'+CSS+'</style><header><div class="shell toolbar"><span class="brand">Astralogue · 剧情审核</span><span class="subtle">看具体片段，决定怎样播放</span></div></header><main class="shell">'+body+'</main>'+FEEDBACK+'</html>'
 
 def baseline(store):return (store.setting('first_task_findings') or {}).get('path',[])
 
@@ -37,7 +61,7 @@ def ordered(store):
 def list_page(store,query):
     rows=ordered(store);tab=query.get('tab',['changes'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
-    for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
+    for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
     content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
     visible=[r for r in rows if r['ready']==(tab!='research') and (status=='all' or r['row']['status']=='pending')]
     try:offset=max(0,int(query.get('offset',['0'])[0]))

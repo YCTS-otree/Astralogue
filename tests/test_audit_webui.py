@@ -48,6 +48,7 @@ def test_sections_follow_recorded_plot_not_node_or_insertion_order(tmp_path):
         assert body.index('进入空间站') < body.index('取出星核')
         assert '今天是昨天的明天' in body and '混乱行至深处' in body
         assert '当前阅读路径第 2 条' in body
+        assert '人工已驳回' in body and 'review-feedback' in body
         assert 'move_to_optional_interaction' not in body
         assert '>pending<' not in body
 
@@ -80,7 +81,7 @@ def test_html_in_dialogue_is_escaped(tmp_path):
         payload['context']['reference_instances']['N1']['text'] = '<script>alert(1)</script>'
         s.db.execute("UPDATE proposals SET payload=? WHERE id='earlier'", (json.dumps(payload),)); s.db.commit()
         body = detail_page(s, 'earlier', 'token', '')
-        assert '<script>' not in body and '&lt;script&gt;' in body
+        assert '<script>alert(1)</script>' not in body and '&lt;script&gt;' in body
 
 
 def test_http_review_preserves_decisions_and_rejects_unbound_approval(tmp_path):
@@ -104,12 +105,14 @@ def test_http_review_preserves_decisions_and_rejects_unbound_approval(tmp_path):
             assert s.db.execute('SELECT COUNT(*) FROM review_log').fetchone()[0] == 1
         def bulk(ids, action):
             values=[('csrf',token),('reviewer','批量测试'),('action',action)]+[('ids',pid) for pid in ids]
-            return urllib.request.urlopen(urllib.request.Request(base,data=urllib.parse.urlencode(values).encode()))
+            return urllib.request.urlopen(urllib.request.Request(base,data=urllib.parse.urlencode(values).encode(),headers={'Accept':'application/json'}))
         with pytest.raises(urllib.error.HTTPError) as error:bulk(['earlier','research'],'approve')
         assert error.value.code==400
         with AuditStore(path) as s:
             assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='pending'
-        bulk(['earlier','later'],'approve').close()
+        with bulk(['earlier','later'],'approve') as response:
+            result=json.load(response)
+            assert result['count']==2 and '提交成功' in result['message']
         with AuditStore(path) as s:
             assert s.db.execute("SELECT COUNT(*) FROM proposals WHERE status='approved'").fetchone()[0]==2
         bulk(['earlier','later'],'reject').close()

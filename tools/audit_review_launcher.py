@@ -14,7 +14,7 @@ URL = 'http://127.0.0.1:8340/'
 def available():
     try:
         with urllib.request.urlopen(URL, timeout=2) as response:
-            return 'Astralogue · 剧情审核' in response.read(8192).decode('utf-8')
+            return 'Astralogue · 剧情审核' in response.read(8192).decode('utf-8', errors='replace')
     except (OSError, ValueError):
         return False
 
