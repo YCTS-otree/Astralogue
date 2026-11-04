@@ -64,16 +64,28 @@ def ordered(store,include_deleted=False):
     rows.sort(key=lambda x:(tasks.get(x['task'],10**6),0 if x['location']['path_order'] is not None else 1,x['location']['path_order'] if x['location']['path_order'] is not None else x['location']['scene_order'],x['row']['id']))
     return rows
 
+def input_task(item):
+    ctx=item['payload']['context']
+    return bool(ctx.get('review_round') and not ctx.get('parent_proposal') and item['row']['status']!='pending')
+
+
 def list_page(store,query):
     from .navigation import catalog,filter_form,filter_proposals,source_page,url
     rows=ordered(store);units=catalog()
-    if query.get('view',[''])[0]=='source':return page(source_page(store,query,units,rows))
+    if query.get('view',[''])[0]=='source':return page(source_page(store,query,units,[r for r in rows if not input_task(r)]))
     all_rows=rows;rows=filter_proposals(rows,query)
     tab=query.get('tab',['all'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
-    for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
+    applications=[r for r in rows if not input_task(r)]
+    pending=[r for r in applications if r['row']['status']=='pending']
+    cards=[(sum(r['ready'] for r in pending),'待审核 · 可发布修改','pending','changes'),(sum(not r['ready'] for r in pending),'待审核 · 研究/待补全','pending','research'),
+           (sum(r['row']['status']=='awaiting_revision' for r in rows),'模型处理中','awaiting_revision','all'),
+           (sum(r['row']['status']=='approved' for r in applications),'人工已批准','approved','all'),(sum(r['row']['status']=='rejected' for r in applications),'人工已驳回','rejected','all')]
+    for count,label,card_status,card_tab in cards:content+='<div><a href="'+v.esc(url(query,tab=card_tab,status=card_status,offset=0))+'"><strong>'+str(count)+'</strong>'+label+'</a></div>'
+    content+='<p class="subtle">以上是当前章节/关键词范围的状态总览；已完成的自动输入任务不计作研究申请。</p>'
     content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab=all&status=revision_failed">修改失败</a><a href="/?tab=all&status=revision_submitted">已提交返修</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    visible=[r for r in rows if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
+    pool=rows if status in {'awaiting_revision','revision_failed'} else applications
+    visible=[r for r in pool if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
     token=store.setting('webui_csrf') or ''
@@ -88,10 +100,11 @@ def list_page(store,query):
         if '{{' in preview:preview=loc['label']
         if ctx.get('parent_proposal'):content+='<p class="pill">'+('本轮复审结果 · 等待人工批准' if ctx.get('initial_case_review') else '模型返修申请 · 需重新人工批准')+'</p>'
         position='当前阅读路径第 '+str(loc['path_order']+1)+' 条' if loc['path_order'] is not None else '按来源小节位置排列；执行位置待核实'
-        content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · 提交 '+v.esc(v.submission_time(item['row'].get('created_at')))+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
+        content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'"'+(' disabled' if input_task(item) else '')+'>选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · 提交 '+v.esc(v.submission_time(item['row'].get('created_at')))+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
     if group:content+='</section>'
     content+='</form>'
-    if not visible:content+='<div class="card">这一组暂时没有待处理项目，可以切换分类或查看已处理记录。</div>'
+    if not visible:
+        content+='<div class="card">当前筛选：'+v.esc(v.STATUS.get(status,'全部状态'))+'，匹配 0 项。当前范围有 '+str(len(pending))+' 份待审核申请。<p><a href="'+v.esc(url(query,status='pending',tab='all',offset=0))+'">查看待审核申请 →</a></p></div>'
     content+='<nav class="nav"><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(max(0,offset-40))+'">上一页</a><span>共 '+str(len(visible))+' 项</span><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(offset+40)+'">下一页</a></nav>'
     content+='<p><a href="'+v.esc(url(query,view='source',offset=0))+'">在原文中定位 / 没有申请时主动发起审查 →</a></p>'
     import re

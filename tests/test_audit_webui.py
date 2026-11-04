@@ -148,3 +148,14 @@ def test_current_pack_options_do_not_replace_proposal_review_state(tmp_path):
         html=detail_page(s,'earlier','token','human')
         assert '当前已有选项' in html and '额外聊天' in html and '推进主线' in html
         assert 'value="approve"' in html
+
+def test_overview_does_not_count_finished_input_as_pending_research(tmp_path):
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        payload=json.loads(s.db.execute("SELECT payload FROM proposals WHERE id='research'").fetchone()[0]);payload['context']['review_round']='round'
+        s.db.execute("INSERT INTO proposals(id,payload,status) VALUES(?,?,'revision_submitted')",('input',json.dumps(payload)))
+        s.db.execute("UPDATE proposals SET status='approved' WHERE id='earlier'");s.db.commit()
+        body=list_page(s,{'status':['awaiting_revision']})
+        assert '<strong>1</strong>待审核 · 研究/待补全' in body
+        assert '<strong>1</strong>待审核 · 可发布修改' in body
+        assert '当前筛选：等待修改，匹配 0 项' in body and '查看待审核申请' in body
