@@ -29,14 +29,20 @@ FEEDBACK = """
  const box=document.getElementById('review-feedback');let timer;
  function notify(message,error=false){clearTimeout(timer);box.querySelector('span').textContent=message;box.classList.toggle('error',error);box.hidden=false;if(!error)timer=setTimeout(()=>box.hidden=true,6000);}
  box.querySelector('button').onclick=()=>box.hidden=true;
- const saved=sessionStorage.getItem('audit-review-feedback');if(saved){sessionStorage.removeItem('audit-review-feedback');notify(saved);}
+ const saved=sessionStorage.getItem('audit-review-feedback');if(saved){sessionStorage.removeItem('audit-review-feedback');try{const notice=JSON.parse(saved);notify(notice.message,notice.error);}catch(_){notify(saved);}}
+ const id=document.querySelector('input[name=id]')?.value;
+ if(id)setInterval(async()=>{try{
+  const response=await fetch('/?feedback_status='+encodeURIComponent(id));const state=await response.json();
+  const key='revision-notice:'+id;const mark=JSON.stringify(state);
+  if(state.children?.length&&sessionStorage.getItem(key)!==mark){sessionStorage.setItem(key,mark);notify('模型已重新提交 '+state.children.length+' 份申请，请再次审核。');const link=document.createElement('a');link.href='/?id='+encodeURIComponent(state.children[0]);link.textContent='查看新申请 →';box.querySelector('span').append(' ',link);}
+ }catch(_){}},5000);
  document.querySelectorAll('form[method="post"]').forEach(form=>form.addEventListener('submit',async event=>{
   event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);if(['request_changes','research_approve'].includes(data.get('action'))&&!String(data.get('comment')||'').trim()){notify('请填写评论，告知具体修改方向。',true);return;}
   const buttons=[...form.querySelectorAll('button')].map(b=>[b,b.disabled]);buttons.forEach(([b])=>b.disabled=true);notify('正在提交，请稍候…');
   try{
    const response=await fetch(form.action||location.href,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(data)});
    const result=await response.json();if(!response.ok)throw new Error(result.message||'提交失败，未保存审核操作。');
-   sessionStorage.setItem('audit-review-feedback',result.message);location.reload();
+   sessionStorage.setItem('audit-review-feedback',JSON.stringify({message:result.message,error:!!result.publication_failed}));location.reload();
   }catch(error){notify(error.message==='Failed to fetch'?'网络连接失败，提交结果尚未确认，请检查记录后再重试。':error.message,true);}
   finally{buttons.forEach(([b,disabled])=>b.disabled=disabled);}
  }));
@@ -62,8 +68,8 @@ def list_page(store,query):
     rows=ordered(store);tab=query.get('tab',['changes'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
     for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
-    content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    visible=[r for r in rows if r['ready']==(tab!='research') and (status=='all' or r['row']['status']==status)]
+    content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
+    visible=[r for r in rows if (tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
     token=store.setting('webui_csrf') or ''
@@ -76,6 +82,7 @@ def list_page(store,query):
             content+='<section class="scene-group"><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' · '+v.esc(item['task'])+'</div><h2>'+v.esc(loc['section'])+'</h2>';group=key
         preview=next((v.text(i.get('text')) for i in v.selected(p) if v.text(i.get('text'))),'需要补充具体剧情位置')
         if '{{' in preview:preview=loc['label']
+        if ctx.get('parent_proposal'):content+='<p class="pill">模型返修申请 · 需重新人工批准</p>'
         position='当前阅读路径第 '+str(loc['path_order']+1)+' 条' if loc['path_order'] is not None else '按来源小节位置排列；执行位置待核实'
         content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
     if group:content+='</section>'
@@ -104,7 +111,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if wiki.get('label'):content+='<p class="source-note">来源栏目：'+v.esc(wiki['label'])+'</p>'
     content+='<p class="source-note">原游戏触发条件仍待核实。批准的是文字阅读安排。</p>'
     if suggestion['conflicts']:content+='<p class="notice">有 '+str(len(suggestion['conflicts']))+' 项冲突，无法判断时请暂缓。</p>'
-    content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">决定单独保存，重编译后才影响播放，不会立即改写存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
+    content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">批准后自动校验并增量发布到当前游玩包；失败原因会明确显示，不会清空存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
     state=row['status'];locked=state in {'approved','rejected','awaiting_revision'}
     labels={'approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
     if locked:
@@ -115,11 +122,14 @@ def detail_page(store,pid,token,reviewer,context_count=3):
         else:content+='<button class="primary" name="action" value="research_approve">批准研究方向（提交评论）</button>'
         content+='<button name="action" value="reject">驳回</button>'
     content+='</div><label>判别模型 <select name="provider"><option value="local">本地离线模型（默认，无 API 费用）</option><option value="deepseek">DeepSeek v41f · 低推理（累计预算 5 元）</option></select></label><label>评论 / 修改方向（需要修改或批准研究方向时必填）<textarea name="comment" maxlength="12000" placeholder="请说明要改哪里、如何调整，以及依据。"></textarea></label></form></section>'
+    publication=store.db.execute('SELECT result FROM publications WHERE proposal=?',(pid,)).fetchone()
+    if publication:
+        record=json.loads(publication[0]);content+='<p class="notice">'+('已发布到游玩包，修订 '+str(record.get('revision','')) if record['status'] in {'published','already_published'} else '批准已保存，但未发布：'+v.esc(record.get('error','未知错误')))+'</p>'
     comments=list(store.db.execute('SELECT c.*,j.status AS job_status,j.error AS job_error FROM review_comments c LEFT JOIN jobs j ON j.id=c.job WHERE c.proposal=? ORDER BY c.id',(pid,)))
     if comments:
         content+='<section class="card"><h2>人工评论与模型修订进度</h2>'
         for comment in comments:
-            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已处理，请查看下方新提案','failed':'模型处理失败，原建议未自动应用'}.get(comment['job_status'],'等待处理')
+            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已提交新申请，请再次人工审核','failed':'模型处理失败，原建议未自动应用'}.get(comment['job_status'],'等待处理')
             content+='<h3>'+v.esc(comment['reviewer'])+'</h3><p>'+v.esc(comment['comment'])+'</p><p>'+status+'</p>'
             if comment['job']:
                 job=store.db.execute('SELECT context FROM jobs WHERE id=?',(comment['job'],)).fetchone()
@@ -127,7 +137,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
                 content+='<p>使用模型：'+('DeepSeek v41f · 低推理' if provider=='deepseek' else '本地离线模型')+'</p>'
             if comment['job_error']:content+='<p class="notice">'+v.esc(comment['job_error'])+'</p>'
             children=list(store.db.execute('SELECT id FROM proposals WHERE job=?',(comment['job'],)))
-            if comment['job_status']=='done' and not children:content+='<p>模型没有形成可执行的具体修改；需要补充证据或方向。</p>'
+            if comment['job_status']=='done' and not children:content+='<p>该次旧流程只完成分类，未提交修订申请；不是仍在推理。请补充意见重新提交。</p>'
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'

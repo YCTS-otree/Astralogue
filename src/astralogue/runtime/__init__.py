@@ -100,6 +100,14 @@ class Runtime:
         self.state.node = target.id
         self.state.mission = target.mission
 
+    def refresh_publication(self):
+        self.pack.refresh_metadata()
+        if self.pack.metadata.get('live_revision') or '_astralogue_live_revision' in self.state.variables:
+            self.state.variables['_astralogue_live_revision']=self.pack.metadata.get('live_revision',{}).get('number',0)
+        if self.pack.metadata.get('live_revision'):
+            for key,value in self.pack.metadata.get('mission_initial_variables',{}).get(self.state.mission,{}).items():
+                self.state.variables.setdefault(key,deepcopy(value))
+
     def next(self, step_limit: int = 1000) -> Event:
         """Emit and consume one dialogue, or stop at a stable choice/end/block.
 
@@ -107,6 +115,7 @@ class Runtime:
         does not consume anything until choose() succeeds. This is also the save
         contract used by all front ends.
         """
+        self.refresh_publication()
         seen = set()
         for _ in range(step_limit):
             nid = self.state.node
@@ -195,6 +204,7 @@ class Runtime:
         return BlockedEvent(self.state.node, f"超过自动执行步数上限 {step_limit}", "step_limit")
 
     def choose(self, value: str) -> None:
+        self.refresh_publication()
         nid = self.state.node
         if nid is None or self.pack.node(nid).kind != "choice": raise ValueError("当前没有玩家选项")
         edges = [e for e in self._eligible(self.pack.edges(nid)) if e.kind == "option" and e.value == value]

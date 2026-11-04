@@ -37,6 +37,11 @@ def make_server(path, port=8340):
                 self.send(403, 'Invalid host')
                 return
             query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if query.get('feedback_status'):
+                with AuditStore(path) as store:
+                    row=store.db.execute('SELECT job FROM review_comments WHERE proposal=? AND job IS NOT NULL ORDER BY id DESC LIMIT 1',(query['feedback_status'][0],)).fetchone()
+                    children=[r[0] for r in store.db.execute("SELECT id FROM proposals WHERE job=? AND status='pending'",(row[0],))] if row else []
+                self.send(200,json.dumps({'children':children}),'application/json; charset=utf-8');return
             pid = query.get('id', [None])[0]
             with AuditStore(path) as store:
                 body = detail_page(store, pid, token, store.setting('webui_reviewer') or '', min(100,max(3,int(query.get('context',['3'])[0]))) if query.get('context',['3'])[0].isdigit() else 3) if pid else list_page(store, query)
@@ -70,6 +75,8 @@ def make_server(path, port=8340):
                     for selected_id in ids:
                         current=rows.get(selected_id)
                         if not current:raise ValueError('未找到提案')
+                        published=store.db.execute('SELECT status FROM publications WHERE proposal=?',(selected_id,)).fetchone()
+                        if action in {'reject','edit','defer','request_changes'} and published and published[0] in {'published','already_published'}:raise ValueError('此提案已发布，请先回滚对应修订，再修改审核结论。')
                         if action=='approve' and not current['ready']:raise ValueError('所选项包含尚无具体修改位置的提案；本批次未保存。')
                     if action in {'request_changes','research_approve'}:
                         if len(ids)!=1:raise ValueError('评论修订请逐项提交')
@@ -84,10 +91,17 @@ def make_server(path, port=8340):
                                     if len(comment)>12000:raise ValueError('评论超过长度限制')
                                     import time
                                     store.db.execute('INSERT INTO review_comments(proposal,reviewer,comment,action,job,at) VALUES(?,?,?,?,NULL,?)',(selected_id,reviewer,comment,action,time.time()))
+                    publication=[]
+                    if action=='approve':
+                        from .publication import publish_approved
+                        publication=publish_approved(store,ids)
                     store.setting('webui_reviewer', reviewer)
                 if 'application/json' in self.headers.get('Accept',''):
                     label={'approve':'通过','reject':'驳回','defer':'暂缓','acknowledge':'记为已阅','edit':'保存修改','request_changes':'提交修改意见，等待模型修订','research_approve':'提交研究方向，等待模型生成具体修改'}[action]
-                    self.send(200,json.dumps({'message':f'提交成功：已{label} {len(ids)} 项，审核记录已保存。','count':len(ids)},ensure_ascii=False),'application/json; charset=utf-8')
+                    published=sum(r['status'] in {'published','already_published'} for r in publication)
+                    failed=[r for r in publication if r['status']=='failed']
+                    extra=(f' 已发布 {published} 项。' if publication else '')+(' 发布失败：'+'；'.join(r['error'] for r in failed) if failed else '')
+                    self.send(200,json.dumps({'message':f'提交成功：已{label} {len(ids)} 项，审核记录已保存。'+extra,'count':len(ids),'publication_failed':bool(failed)},ensure_ascii=False),'application/json; charset=utf-8')
                     return
                 self.send_response(303)
                 self.send_header('Location', ('/' if 'ids' in data else '/?id=' + urllib.parse.quote(pid, safe='')))
@@ -102,6 +116,12 @@ def make_server(path, port=8340):
 
 
 def serve(path, port=8340):
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[3]
+    config=root/'data/launcher.json'
+    if config.exists():
+        target=root/json.loads(config.read_text(encoding='utf-8-sig'))['pack']
+        with AuditStore(path) as store:store.setting('publication_pack',str(target.resolve()))
     server = make_server(path, port)
     print(f'剧情审核管理器：http://127.0.0.1:{server.server_address[1]}', flush=True)
     import threading

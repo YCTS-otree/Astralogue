@@ -95,6 +95,7 @@ class ArcSession(Runtime):
         super()._move(edge,transition)
         self.record(source,self.state.node,edge.value)
     def next(self,step_limit=1000):
+        self.refresh_publication()
         node=self.pack.node(self.state.node) if self.state.node else None
         if node and node.data.get('reader_action')=='optional_idle_dialogue' and not getattr(self,'inspect_idle',False):
             # This is a source archive of several waiting thresholds, not a

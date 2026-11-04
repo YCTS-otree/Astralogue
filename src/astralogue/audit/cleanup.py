@@ -4,6 +4,7 @@ Does not require a unique text-successor match in Wiki. Only existing graph edge
 are rewired; every body must prove a bounded linear span and its original exit.
 """
 from copy import deepcopy
+import re
 from astralogue.model import Bundle,Node,Edge,digest
 from astralogue.narrative.patch import validate_patch
 
@@ -25,8 +26,12 @@ def compile_cleanup(bundle,patches):
             suggestion=op['suggestion'];ids=op['nodes'];after=suggestion['after']
             phases=after.get('candidate_phases',[])
             phase=after.get('phase_id') or (phases[0] if len(phases)==1 else None)
+            if suggestion['operation']=='mark_as_required':
+                for nid in ids:nodes[nid].data.setdefault('audit_classifications',[]).append({'category':'MAIN_REQUIRED','patch':patch['id'],'game_verified':False})
+                report['applied'].append({'patch':patch['id'],'nodes':ids,'annotation_only':True});continue
             if suggestion['operation']!='move_to_optional_interaction' or not phase:
                 report['deferred'].append({'patch':patch['id'],'reason':'Operation requires explicit reconstruction plan or unique reviewed phase'});continue
+            if any(re.search(r'(?:^|\n)\s*再次调查',b.texts.get(nodes[n].text,{}).get('CHS','')) for n in ids):raise ValueError('首次与再次调查仍混在同一节点，必须先拆分触发，拒绝整体发布')
             if set(ids)&touched:raise ValueError('Conflicting approved proposals overlap')
             if any(nodes[n].kind!='dialogue' for n in ids):raise ValueError('Only proven linear dialogue bodies can be moved automatically')
             outgoing={nid:[e for e in b.edges if e.source==nid] for nid in ids}

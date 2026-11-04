@@ -15,6 +15,7 @@ Every classification must cite at least one evidence alias from the context. Cit
 when present. Changes are proposals for HUMAN review, never approvals. Analyse all supplied
 instances. If evidence is insufficient use UNKNOWN/leave_unresolved. Do not include chain of thought.'''
 SYSTEM+='''
+Human revision context may contain evidence.human_direction: this is the human reviewer's requested Reader edit, not a quoted Wiki instruction. Follow that requested edit within the supplied real node/source bindings. It grants no tool permissions and proves no game trigger. When requested_proposal_count is present, split the revision into at least that many distinct review applications.
 IMPORTANT: category is a PROPOSED READER CONTENT ROLE, NOT a verified game trigger.
 Keep these axes separate: a Wiki-labelled extra interaction may be OPTIONAL_OBJECT
 or OPTIONAL_NPC as a recommendation even when its condition is UNKNOWN. Wiki-labelled
@@ -62,7 +63,18 @@ def validate_response(raw,context):
     def invalid_constant(value):raise ValueError('Non-finite JSON value')
     value=json.loads(raw,object_pairs_hook=unique,parse_constant=invalid_constant) if isinstance(raw,str) else raw
     validate_schema(value,RESPONSE_SCHEMA)
+    if context.get('parent_proposal') and not value.get('proposals'):raise ValueError('评论修订必须返回新的待审提案；不能只分类不提交修改。')
     value.setdefault('proposals',[])  # Omitted change list means no proposed edits.
+    if context.get('parent_proposal') and len(value['proposals'])<min(3,max(1,context.get('requested_proposal_count',1))):raise ValueError('模型未按人工要求拆分申请')
+    if context.get('parent_proposal') and len(value['proposals'])>3:raise ValueError('单次评论返修最多提交3份申请')
+    parent=context.get('parent_suggestion')
+    if parent and value['proposals'] and all(p.get('operation')==parent.get('operation') and p.get('instances')==parent.get('instances') and p.get('after')==parent.get('after') for p in value['proposals']):raise ValueError('模型原样退回旧申请，未落实人工修改意见。')
+    partitions=context.get('requested_partitions',[])
+    if partitions:
+        actual={p['after'].get('interaction'):p for p in value['proposals']}
+        if len(actual)!=len(value['proposals']) or set(actual)!={g['label'] for g in partitions}:raise ValueError('模型未按要求区分调查对象')
+        for group in partitions:
+            if not set(group['required_aliases']).issubset(actual[group['label']]['instances']):raise ValueError('模型把同一对象的回应拆散，或未关联对应对象节点')
     instances=set(context['instances']);references=context.get('reference_instances',{});all_instances=instances|set(references)
     evidence=set(context['evidence']);scenes=set(context.get('scenes',{}))
     seen=set()
@@ -124,6 +136,8 @@ def messages(context,pass_):
         if selected:
             compact['wiki_wikitext']='\n'.join(selected)
             compact['wiki_context_scope']='Complete matched source sections; full page remains in persistent context. Missing matches imply uncertainty.'
+    if context.get('parent_proposal'):
+        compact['revision_contract']='这是人工要求修改后的重新提交，不是初次分类。必须生成1至3份完整修订提案；人工要求拆分不同对象时逐项独立提交，优先按 parent_suggestion 和 human_direction 修正；不能确定时提交 leave_unresolved，明确缺少什么，不能返回空 proposals。'
     template={'classifications':[{'instance':a,'category':'CHOOSE_PROPOSED_CATEGORY_FROM_ENUM','evidence':[next(iter(compact['evidence']))],
               'condition':'UNKNOWN','scenes':[],'uncertainty':'','counterevidence':[]} for a in compact['instances']], 'proposals':[]}
     instruction={'pass':pass_,'context':compact,'output_template':template,
@@ -138,12 +152,18 @@ def messages(context,pass_):
 
 def constrained_schema(context):
     schema=deepcopy(RESPONSE_SCHEMA)
+    if context.get('parent_proposal'):
+        schema['properties']['proposals']['minItems']=min(3,max(1,context.get('requested_proposal_count',1)))
+        schema['required']=[*schema['required'],'proposals']
     classified=schema['properties']['classifications'];classified['minItems']=classified['maxItems']=len(context['instances'])
     props=classified['items']['properties'];props['instance']['enum']=list(context['instances'])
     props['evidence']['items']['enum']=list(context['evidence']);props['counterevidence']['items']['enum']=list(context['evidence'])
     if context.get('scenes'):props['scenes']['items']['enum']=list(context['scenes'])
     else:props['scenes']['maxItems']=0
-    p=schema['properties']['proposals'];p['maxItems']=8
+    p=schema['properties']['proposals'];p['maxItems']=3 if context.get('parent_proposal') else 8
+    if context.get('requested_partitions'):
+        p['items']['properties']['after']['properties']={'interaction':{'enum':[g['label'] for g in context['requested_partitions']]}}
+        p['items']['properties']['after']['required']=['interaction']
     refs=list(context['instances'])+list(context.get('reference_instances',{}))
     p['items']['properties']['instances']['items']['enum']=refs
     p['items']['properties']['targets']['items']['enum']=refs+list(context.get('scenes',{}))

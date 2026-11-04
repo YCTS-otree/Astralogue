@@ -91,3 +91,44 @@ def rebuild(output:Path,db:Path=DB,pack:Path=Path('data/packs/prologue-explorati
         patches=[export_patch(s,pid,b) for pid in ids]
         rebuilt=compile_cleanup(b,patches);compile_story(rebuilt,output)
         typer.echo(json.dumps(rebuilt.metadata['audit_cleanup'],ensure_ascii=False))
+
+
+@app.command('publish')
+def publish_cmd(db:Path=DB):
+    """将已批准提案增量发布至当前启动器数据包。"""
+    from .publication import publish_approved
+    from astralogue.model import load_json
+    root=Path(__file__).resolve().parents[3]
+    target=root/load_json(root/'data/launcher.json')['pack']
+    with AuditStore(db) as s:
+        s.setting('publication_pack',str(target.resolve()))
+        ids=[r[0] for r in s.db.execute("SELECT id FROM proposals WHERE status='approved' ORDER BY reviewed_at,id")]
+        typer.echo(json.dumps(publish_approved(s,ids),ensure_ascii=False))
+
+
+@app.command('history')
+def history_cmd(db:Path=DB):
+    import sqlite3
+    with AuditStore(db) as s:path=s.setting('publication_pack')
+    if not path:raise ValueError('尚未启用增量发布')
+    con=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)
+    try:
+        rows=con.execute('SELECT revision,proposal,at,length(delta),rolled_back FROM reader_revisions ORDER BY revision DESC').fetchall()
+        typer.echo(json.dumps(rows,ensure_ascii=False))
+    finally:con.close()
+
+
+@app.command('rollback')
+def rollback_cmd(db:Path=DB):
+    from .publication import rollback
+    from astralogue.storypack import StoryPack
+    with AuditStore(db) as s:
+        path=s.setting('publication_pack')
+        if not path:raise ValueError('尚未启用增量发布')
+        with StoryPack(Path(path)) as p:
+            row=p.con.execute('SELECT revision,proposal FROM reader_revisions WHERE rolled_back=0 ORDER BY revision DESC LIMIT 1').fetchone()
+            if not row:raise ValueError('没有可回滚的修订')
+            revision,proposal=row
+        rollback(path)
+        with s.db:s.db.execute("UPDATE publications SET status='rolled_back',result=? WHERE proposal=?",(json.dumps({'status':'rolled_back','revision':revision}),proposal))
+        typer.echo('已回滚修订 '+str(revision)+'；若存档位于该修订新增节点，需恢复到兼容位置后继续。')

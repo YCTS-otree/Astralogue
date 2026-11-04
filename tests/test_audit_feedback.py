@@ -75,3 +75,51 @@ def test_http_comment_workflow_keeps_research_out_of_approved(tmp_path):
         html=urllib.request.urlopen(base+'/?id=research&context=8').read().decode()
         assert 'disabled>等待修改' in html and '定位到具体小节' in html
     finally:server.shutdown();server.server_close();thread.join()
+
+def test_feedback_must_resubmit_nonempty_and_changed_proposal():
+    from astralogue.audit.protocol import validate_response
+    from test_audit import context,response
+    ctx=context();ctx['parent_proposal']='parent';value=response()
+    ctx['parent_suggestion']=json.loads(json.dumps(value['proposals'][0]))
+    with pytest.raises(ValueError,match='未落实'):validate_response(value,ctx)
+    value['proposals']=[]
+    with pytest.raises(ValueError,match='重新|新的待审'):validate_response(value,ctx)
+
+def test_feedback_worker_recovers_interrupted_running_job(tmp_path,monkeypatch):
+    from astralogue.audit.feedback import worker
+    from test_audit import context,FakeProvider
+    import astralogue.audit.providers as providers
+    path=tmp_path/'a.sqlite'
+    with AuditStore(path) as s:
+        jid=s.job(2,'human_feedback:test-recovery',context())
+        s.db.execute("UPDATE jobs SET status='running' WHERE id=?",(jid,));s.db.commit()
+    monkeypatch.setattr(providers,'Provider',lambda *a,**k:FakeProvider())
+    class Stop:
+        calls=0
+        def wait(self,*a):self.calls+=1;return self.calls>1
+    worker(path,Stop())
+    with AuditStore(path) as s:
+        assert s.db.execute('SELECT status FROM jobs WHERE id=?',(jid,)).fetchone()[0]=='done'
+        assert s.db.execute('SELECT status FROM proposals WHERE job=?',(jid,)).fetchone()[0]=='pending'
+
+def test_feedback_proposal_count_accepts_three_rejects_four():
+    from astralogue.audit.protocol import validate_response,constrained_schema
+    from test_audit import response,context
+    ctx=context();ctx['parent_proposal']='parent';value=response()
+    item=value['proposals'][0]
+    value['proposals']=[json.loads(json.dumps(item)) for _ in range(3)]
+    assert len(validate_response(value,ctx)['proposals'])==3
+    assert constrained_schema(ctx)['properties']['proposals']['maxItems']==3
+    value['proposals'].append(item)
+    with pytest.raises(ValueError,match='最多'):validate_response(value,ctx)
+
+def test_object_partition_keeps_shared_replies_together():
+    from astralogue.audit.protocol import validate_response
+    from test_audit import context,response
+    ctx=context();ctx['parent_proposal']='parent';ctx['reference_instances']={'b':{'node':'stairs-node'}}
+    ctx['requested_partitions']=[{'label':'screen','required_aliases':['a']},{'label':'stairs','required_aliases':['b']}]
+    value=response();value['proposals'][0]['after']['interaction']='screen'
+    second=json.loads(json.dumps(value['proposals'][0]));second['instances']=['b'];second['after']['interaction']='stairs'
+    value['proposals'].append(second);assert validate_response(value,ctx)
+    value['proposals'][1]['instances']=['a']
+    with pytest.raises(ValueError,match='对象'):validate_response(value,ctx)

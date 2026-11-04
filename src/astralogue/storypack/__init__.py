@@ -74,8 +74,9 @@ class StoryPack:
             if version != SCHEMA_VERSION: raise ValueError(f"不支持的 StoryPack Schema {version}；需要显式迁移")
             self.metadata = {r["key"]: json.loads(r["value"]) for r in self.con.execute("SELECT * FROM metadata")}
             if self.metadata.get("schema_version") != version: raise ValueError("Schema 版本元数据不一致")
+            self._data_version=self.con.execute("PRAGMA data_version").fetchone()[0]
             if not isinstance(self.metadata.get("pack_id"), str): raise ValueError("缺少数据包标识")
-            if set(self.metadata.get("required_capabilities", [])) - {"call-return-v1", "reader-player-v1"}:
+            if set(self.metadata.get("required_capabilities", [])) - {"call-return-v1", "reader-player-v1", "live-reader-revisions-v1"}:
                 raise ValueError("数据包需要当前引擎尚未支持的执行能力")
         except Exception:
             self.close(); raise
@@ -83,6 +84,12 @@ class StoryPack:
     def __enter__(self): return self
     def __exit__(self, *args): self.close()
     def close(self): self.con.close()
+
+    def refresh_metadata(self):
+        version=self.con.execute('PRAGMA data_version').fetchone()[0]
+        if version!=self._data_version:
+            updated={r['key']:json.loads(r['value']) for r in self.con.execute('SELECT * FROM metadata')}
+            self.metadata.clear();self.metadata.update(updated);self._data_version=version
 
     def text(self, key: str | None, lang: str, fallback: str | None = None) -> str:
         if key is None:
