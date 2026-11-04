@@ -34,6 +34,14 @@ def validate_patch(bundle: Bundle, patch: dict) -> dict:
         adjacency = {}
         for edge in edges.values(): adjacency.setdefault(edge.source, set()).add(edge.target)
         for op in operations:
+            if isinstance(op,dict) and op.get('op')=='narrative_audit':
+                if patch['status']!='reviewed' or not op.get('reader_only'):raise ValueError('剧情审计补丁必须经人工审核且仅用于 Reader')
+                if not op.get('nodes') or not op.get('evidence') or set(op['evidence'])-set(ids):raise ValueError('审计节点或证据缺失')
+                if op.get('source') not in op['nodes']:raise ValueError('审计源节点与实例集合不一致')
+                for nid in op['nodes']:
+                    if nid not in nodes or info.get('modes',{}).get(nodes[nid].mission,{}).get('mode')!='reader':raise ValueError('审计引用不存在或不属于 Reader')
+                    if digest(asdict(nodes[nid]))!=op.get('before_hashes',{}).get(nid):raise ValueError('审计节点已变化，需重新审核')
+                continue
             if isinstance(op,dict) and op.get('op')=='text_parameter':
                 node=nodes.get(op.get('source'))
                 if node is None or info.get('modes',{}).get(node.mission,{}).get('mode')!='reader':raise ValueError('文本参数只能标注 Reader 节点')
@@ -109,6 +117,12 @@ def apply_patch(bundle: Bundle, patch: dict, include_pending: bool = False) -> B
     for i, op in enumerate(patch["operations"]):
         node = next(n for n in b.nodes if n.id == op["source"])
         original[node.id] = asdict(node)
+        if op['op']=='narrative_audit':
+            for nid in op['nodes']:
+                reviewed=next(n for n in b.nodes if n.id==nid)
+                reviewed.data.setdefault('audit_reviews',[]).append({'patch':patch['id'],'suggestion':deepcopy(op['suggestion']),
+                    'review':deepcopy(patch['review']),'status':'human_reviewed_reader_policy','game_verified':False})
+            continue
         if op['op']=='text_parameter':
             node.data.setdefault('text_parameters',[]).append({k:deepcopy(op[k]) for k in ['start','end','literal','parameter','evidence']})
             node.data['text_parameters'][-1].update(patch=patch['id'],language=op.get('language','CHS'),option=op.get('option'))

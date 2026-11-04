@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "classifications"
+  ],
+  "properties": {
+    "classifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instance",
+          "category",
+          "evidence",
+          "condition",
+          "scenes",
+          "uncertainty",
+          "counterevidence"
+        ],
+        "properties": {
+          "instance": {
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "MAIN_REQUIRED",
+              "MAIN_CHOICE",
+              "OPTIONAL_NPC",
+              "OPTIONAL_OBJECT",
+              "CONDITIONAL",
+              "AMBIENT",
+              "STAGE_DIRECTION",
+              "UNKNOWN"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "condition": {
+            "type": "string"
+          },
+          "scenes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uncertainty": {
+            "type": "string"
+          },
+          "counterevidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "instances",
+          "targets",
+          "evidence",
+          "before",
+          "after",
+          "conflicts",
+          "unknowns",
+          "rationale"
+        ],
+        "properties": {
+          "operation": {
+            "enum": [
+              "move_to_optional_interaction",
+              "attach_to_exploration_phase",
+              "mark_as_required",
+              "classify_conditional",
+              "split_dialogue_sequence",
+              "merge_verified_sequence",
+              "add_missing_choice",
+              "add_stage_direction",
+              "report_conflict",
+              "leave_unresolved"
+            ]
+          },
+          "instances": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "before": {
+            "type": "object"
+          },
+          "after": {
+            "type": "object"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unknowns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

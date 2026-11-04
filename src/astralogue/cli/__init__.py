@@ -399,3 +399,6 @@ app.add_typer(arcs_app, name="arcs")
 
 from astralogue.adapters.wiki.pilot_cli import app as bwiki_app
 app.add_typer(bwiki_app, name="bwiki")
+
+from astralogue.audit.cli import app as audit_app
+app.add_typer(audit_app,name="audit")
