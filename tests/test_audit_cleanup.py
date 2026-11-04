@@ -69,9 +69,10 @@ def test_reuses_existing_phase_without_duplicate_optional_playback(tmp_path):
         assert [o.value for o in rt.next().options]==['main'];rt.choose('main');assert rt.next().text=='b'
 
 
+@pytest.mark.parametrize('operation',['move_to_optional_interaction','split_dialogue_sequence'])
 @pytest.mark.parametrize('stages',[2,3,4])
-def test_repeat_inspection_stages_persist_and_last_repeats(tmp_path,stages):
-    b,p=fixture();texts=['调查阶段'+str(i)+'。' for i in range(stages)]
+def test_repeat_inspection_stages_persist_and_last_repeats(tmp_path,stages,operation):
+    b,p=fixture();p['operations'][0]['suggestion']['operation']=operation;texts=['调查阶段'+str(i)+'。' for i in range(stages)]
     b.texts['o1']['CHS']='\n再次调查\n'.join(texts);b.texts['o2']['CHS']=''
     p['operations'][0]['before_hashes']={n.id:digest(n.__dict__) for n in b.nodes if n.id in {'o1','o2'}}
     p['operations'][0]['suggestion']['after']['segments']=[{'text':t,'trigger':'visit_'+str(i)} for i,t in enumerate(texts)]
@@ -95,3 +96,10 @@ def test_repeat_inspection_rejects_invented_or_omitted_text():
     with pytest.raises(ValueError,match='未覆盖'):compile_cleanup(b,[p])
     after['segments'][1]['text']='编造。'
     with pytest.raises(ValueError,match='原文'):compile_cleanup(b,[p])
+
+
+def test_arbitrary_split_remains_uncompiled():
+    b,p=fixture();p['operations'][0]['suggestion']['operation']='split_dialogue_sequence'
+    result=compile_cleanup(b,[p])
+    assert result.metadata['audit_cleanup']['deferred']
+    assert not result.metadata['audit_cleanup']['applied']

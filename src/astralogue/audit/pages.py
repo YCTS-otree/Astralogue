@@ -59,7 +59,7 @@ def ordered(store,include_deleted=False):
     path=baseline(store);tasks={p['task']:i for i,p in enumerate(store.setting('audit_plan') or [])};rows=[]
     for r in store.db.execute('SELECT * FROM proposals'+('' if include_deleted else ' WHERE deleted_at IS NULL')):
         p=json.loads(r['payload']);loc=v.location(p,path);task=(p['context'].get('task') or {}).get('title','未归属任务');ready=v.reviewable(p)
-        if ready and p['suggestion']['operation']=='move_to_optional_interaction':ready=v.windows(p,path)[2]
+        if ready and v.supports_interaction(p['suggestion']):ready=v.windows(p,path)[2]
         rows.append({'row':dict(r),'payload':p,'location':loc,'task':task,'ready':ready})
     rows.sort(key=lambda x:(tasks.get(x['task'],10**6),0 if x['location']['path_order'] is not None else 1,x['location']['path_order'] if x['location']['path_order'] is not None else x['location']['scene_order'],x['row']['id']))
     return rows
@@ -152,7 +152,7 @@ def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
     if not ready:content+='<p class="notice">这项是研究结论或尚未定位的片段，还不能直接改变播放。请先补充具体台词与位置，不需要审批笼统描述。</p>'
     content+='<nav class="nav"><a href="'+v.esc(url(filter_query,id=pid,context=min(100,context_count+5)))+'">向前／向后各多加载 5 条剧情</a><span>当前前后各 '+str(context_count)+' 条，最多 100 条；沿当前已记录路径展示</span></nav>'
     content+='<div class="review-grid"><section><div class="label">上几条剧情</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in before) or '<p class="subtle">上文尚未定位，或已到任务开头。</p>')
-    content+='<div class="point"><strong>'+('这里改为一个可选分支' if op=='move_to_optional_interaction' else v.OPS.get(op,'待补全的修改位置'))+'</strong><p>'+v.esc(v.proposed_explanation(p))+'</p>'
+    content+='<div class="point"><strong>'+('这里改为一个可选分支' if v.supports_interaction(suggestion) else v.OPS.get(op,'待补全的修改位置'))+'</strong><p>'+v.esc(v.proposed_explanation(p))+'</p>'
     phases=v.phase_candidates(p)
     if phases:content+='<span class="pill">所属小节：'+v.esc(' / '.join(s.get('title','待命名') for _,s in phases))+'</span>'
     current_options=[]
@@ -174,7 +174,7 @@ def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
                         for edge in edges:
                             if edge.kind=='option':current_options.append({'label':live.text(edge.text,'CHS',edge.value),'detail':'当前游玩包 · '+('进入本段' if edge.target in selected_nodes else '其他入口')})
         except (OSError,ValueError):pass
-    if ready and (op not in {'move_to_optional_interaction','mark_as_required'} or (any('再次调查' in v.text(instance.get('text')) for instance in v.selected(p)) and not suggestion.get('after',{}).get('segments'))):content+='<p class="notice">这是一份有明确目标的具体修改申请，但当前发布器尚未支持该类结构操作；批准会保存决定，不能假装已经完成发布。</p>'
+    if ready and (not (v.supports_interaction(suggestion) or op=='mark_as_required') or (any('再次调查' in v.text(instance.get('text')) for instance in v.selected(p)) and not suggestion.get('after',{}).get('segments'))):content+='<p class="notice">这是一份有明确目标的具体修改申请，但当前发布器尚未支持该类结构操作；批准会保存决定，不能假装已经完成发布。</p>'
     content+='</div>'+v.option_preview(p,current_options)
     rationale=suggestion.get('rationale','')
     explanation=suggestion.get('explanation') or (rationale if any('\u4e00'<=c<='\u9fff' for c in rationale) else '')
@@ -185,16 +185,16 @@ def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
         content+='<p class="notice">新增句子节点暂未接入发布器，批准也不会静默加入；需先完成来源与插入位置的编译支持。</p></section>'
     if explanation:content+='<section class="card"><h3>申请说明（不是剧情正文）</h3><p style="white-space:pre-wrap">'+v.esc(explanation)+'</p></section>'
     segments=suggestion.get('after',{}).get('segments',[])
-    if op=='move_to_optional_interaction' and segments:
+    if v.supports_interaction(suggestion) and segments:
         content+='<div class="label">按调查次数触发的内容</div><p>入口始终保留；访问次数随存档保存，最后一个阶段可重复阅读。</p>'
         for index,segment in enumerate(segments):
             label='首次调查' if index==0 else '第 '+str(index+1)+' 次调查'
             if index==len(segments)-1:label+='及以后'
             content+='<section class="branch"><h3>'+label+'</h3>'+v.line(None,segment.get('text',''))+'</section>'
         content+='<details><summary>查看拆分前原文</summary>'+v.body(p)+'</details>'
-    else:content+='<div class="label">'+('分支内容（原文保留）' if op=='move_to_optional_interaction' else '要审核的具体内容')+'</div><div class="branch">'+v.body(p)+'</div>'
-    if op=='move_to_optional_interaction':content+='<div class="return">选择额外互动 → 阅读这段内容 → 返回本小节菜单；继续主线时跳过这段。</div>'
-    content+='<div class="label">下几条剧情 / 主线继续位置</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in after) or '<p class="subtle">后续衔接尚未定位，或已到任务末尾。</p>')+'</section><aside><section class="card"><h3>你需要判断</h3><p>'+('这段是否应当由玩家主动选择，而不是自动混在主线里？' if op=='move_to_optional_interaction' else '这项建议是否与原作及已有来源相符？')+'</p><p class="source-note">来源：'+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+'</p>'
+    else:content+='<div class="label">'+('分支内容（原文保留）' if v.supports_interaction(suggestion) else '要审核的具体内容')+'</div><div class="branch">'+v.body(p)+'</div>'
+    if v.supports_interaction(suggestion):content+='<div class="return">选择额外互动 → 阅读这段内容 → 返回本小节菜单；继续主线时跳过这段。</div>'
+    content+='<div class="label">下几条剧情 / 主线继续位置</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in after) or '<p class="subtle">后续衔接尚未定位，或已到任务末尾。</p>')+'</section><aside><section class="card"><h3>你需要判断</h3><p>'+('这段是否应当由玩家主动选择，而不是自动混在主线里？' if v.supports_interaction(suggestion) else '这项建议是否与原作及已有来源相符？')+'</p><p class="source-note">来源：'+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+'</p>'
     from .navigation import chapter_key,chapter_label
     chapter=chapter_label('100001') if chapter_key(ctx)=='100001' else v.text(ctx.get('chapter')) or '待确认'
     content+='<dl class="review-location"><dt>章</dt><dd>'+v.esc(chapter)+'</dd><dt>节 / 任务</dt><dd>'+v.esc(item['task'])+'</dd><dt>小节</dt><dd>'+v.esc(loc['section'])+'</dd></dl>'

@@ -2,6 +2,7 @@
 import html
 import json
 import re
+from .cleanup import supports_interaction
 from astralogue.adapters.wiki import normalize
 from astralogue.adapters.wiki.bwiki import templates,inline,dialogue_body
 
@@ -119,7 +120,7 @@ def reviewable(payload):
     if not items or any(not i.get('node') or not text(i.get('text')) for i in items):return False
     if payload['context'].get('review_intent')=='promote_research' and op in {'split_dialogue_sequence','attach_to_exploration_phase','classify_conditional'}:
         return len(phase_candidates(payload))==1 and bool(payload['suggestion']['after'])
-    if op=='move_to_optional_interaction':
+    if supports_interaction(payload['suggestion']):
         if len(payload['suggestion']['after'].get('segments',[]))>=2:return len(phase_candidates(payload))==1
         if any(re.search(r'(?:^|\n)\s*再次调查',text(i.get('text'))) for i in items):return False
         return len(phase_candidates(payload))==1

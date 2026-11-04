@@ -9,6 +9,13 @@ from astralogue.model import Bundle,Node,Edge,digest
 from astralogue.narrative.patch import validate_patch
 
 
+def supports_interaction(suggestion):
+    if suggestion['operation']=='move_to_optional_interaction':return True
+    after=suggestion.get('after',{});segments=after.get('segments')
+    return (suggestion['operation']=='split_dialogue_sequence' and isinstance(segments,list)
+            and len(segments)>=2 and isinstance(after.get('interaction'),str) and bool(after['interaction'].strip()))
+
+
 def compile_cleanup(bundle,patches):
     from astralogue import __version__
     b=Bundle.from_dict(deepcopy(bundle.to_dict()));nodes={n.id:n for n in b.nodes}
@@ -30,7 +37,7 @@ def compile_cleanup(bundle,patches):
             if suggestion['operation']=='mark_as_required':
                 for nid in ids:nodes[nid].data.setdefault('audit_classifications',[]).append({'category':'MAIN_REQUIRED','patch':patch['id'],'game_verified':False})
                 report['applied'].append({'patch':patch['id'],'nodes':ids,'annotation_only':True});continue
-            if suggestion['operation']!='move_to_optional_interaction' or not phase:
+            if not supports_interaction(suggestion) or not phase:
                 report['deferred'].append({'patch':patch['id'],'reason':'Operation requires explicit reconstruction plan or unique reviewed phase'});continue
             segments=after.get('segments',[])
             if any(re.search(r'(?:^|\n)\s*再次调查',b.texts.get(nodes[n].text,{}).get('CHS','')) for n in ids) and not segments:raise ValueError('首次与再次调查仍混在同一节点，必须先拆分触发，拒绝整体发布')
