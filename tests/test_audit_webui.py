@@ -199,3 +199,30 @@ def test_detail_navigation_stays_in_current_scope_after_approval(tmp_path):
         for key,value in query.items():assert params[key]==value
         scoped=detail_page(s,'earlier','token','human',filter_query={**query,'section':['进入空间站']})
         assert '下一片段' not in scoped.rsplit('<nav class="nav">',1)[1]
+
+def test_default_and_all_status_navigation_skip_approved(tmp_path):
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        s.db.execute("UPDATE proposals SET status='approved' WHERE id='later'");s.db.commit()
+        for query in [None,{'tab':['changes'],'status':['all']}]:
+            body=detail_page(s,'earlier','token','human',filter_query=query)
+            nav=body.rsplit('<nav class="nav">',1)[1]
+            assert 'id=later' not in nav and 'id=research' not in nav
+
+
+def test_stale_next_link_rechecks_state_and_does_not_open_processed(tmp_path):
+    from urllib.parse import parse_qs,urlparse
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        s.db.execute("UPDATE proposals SET status='approved' WHERE id='earlier'");s.db.commit()
+    server=make_server(path,0);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        base='http://127.0.0.1:'+str(server.server_address[1])
+        stale=base+'/?id=earlier&tab=changes&status=pending&nav=next'
+        response=urllib.request.urlopen(stale)
+        assert parse_qs(urlparse(response.geturl()).query)['id']==['later']
+        with AuditStore(path) as s:s.db.execute("UPDATE proposals SET status='approved' WHERE id='later'");s.db.commit()
+        response=urllib.request.urlopen(stale)
+        assert 'id' not in parse_qs(urlparse(response.geturl()).query)
+        assert '匹配 0 项' in response.read().decode()
+    finally:server.shutdown();server.server_close();thread.join()

@@ -1,3 +1,3 @@
 """Astralogue: source-independent, offline narrative execution."""
 
-__version__ = "1.23.4"
+__version__ = "1.23.5"

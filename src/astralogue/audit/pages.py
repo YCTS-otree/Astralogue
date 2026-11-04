@@ -138,7 +138,7 @@ def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
     from .navigation import url
     filter_query=filter_query or {}
-    if not any(key in filter_query for key in ['tab','status','chapter','mission','section','q','match','view']):filter_query={'tab':['changes' if ready else 'research'],'status':['all']}
+    if not any(key in filter_query for key in ['tab','status','chapter','mission','section','q','match','view']):filter_query={'tab':['changes' if ready else 'research'],'status':['pending']}
     before,after,contiguous=v.windows(p,baseline(store),context_count)
     content='<a href="'+v.esc(url(filter_query))+'">← 返回当前筛选列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
     if p.get('review_warnings'):
@@ -240,9 +240,11 @@ def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'
-    peers=filtered_applications(rows,filter_query);rank={r['row']['id']:i for i,r in enumerate(rows)};at=rank[pid]
+    nav_query=dict(filter_query)
+    if nav_query.get('status',['pending'])[0] not in {'approved','rejected'}:nav_query['status']=['pending']
+    peers=filtered_applications(rows,nav_query);rank={r['row']['id']:i for i,r in enumerate(rows)};at=rank[pid]
     previous=[r for r in peers if rank[r['row']['id']]<at];following=[r for r in peers if rank[r['row']['id']]>at]
     content+='<nav class="nav">'
-    if previous:content+='<a href="'+v.esc(url(filter_query,id=previous[-1]['row']['id']))+'">← 上一片段（当前筛选）</a>'
-    if following:content+='<a href="'+v.esc(url(filter_query,id=following[0]['row']['id']))+'">下一片段（当前筛选） →</a>'
+    if previous:content+='<a href="'+v.esc(url(nav_query,id=previous[-1]['row']['id'],nav='previous' if nav_query.get('status')==['pending'] else 'history'))+'">← 上一片段（当前筛选）</a>'
+    if following:content+='<a href="'+v.esc(url(nav_query,id=following[0]['row']['id'],nav='next' if nav_query.get('status')==['pending'] else 'history'))+'">下一片段（当前筛选） →</a>'
     return page(content+'</nav>')

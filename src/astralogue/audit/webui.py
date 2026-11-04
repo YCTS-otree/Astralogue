@@ -5,7 +5,7 @@ import secrets
 import urllib.parse
 from .store import AuditStore
 from .review import review
-from .pages import page, list_page, detail_page, ordered, input_task, input_results
+from .pages import page, list_page, detail_page, ordered, input_task, input_results, filtered_applications
 from .presentation import esc
 from .navigation import url
 
@@ -47,6 +47,15 @@ def make_server(path, port=8340):
             with AuditStore(path) as store:
                 from .progress import refresh
                 refresh(store)
+                direction=query.get('nav',[''])[0]
+                if pid and direction in {'next','previous'}:
+                    query['status']=['pending']
+                    rows=ordered(store,include_deleted=True);ranks={r['row']['id']:i for i,r in enumerate(rows)}
+                    peers=filtered_applications(rows,query);target=next((r for r in peers if r['row']['id']==pid),None)
+                    if target is None and pid in ranks:
+                        eligible=[r for r in peers if (ranks[r['row']['id']]>ranks[pid] if direction=='next' else ranks[r['row']['id']]<ranks[pid])]
+                        target=(eligible[0] if direction=='next' else eligible[-1]) if eligible else None
+                    self.send_response(303);self.send_header('Location',url(query,**({'id':target['row']['id']} if target else {})));self.end_headers();return
                 if pid and query.get('history',[''])[0]!='1':
                     item=next((r for r in ordered(store) if r['row']['id']==pid),None)
                     results=input_results(store,pid) if item and input_task(item) else []
