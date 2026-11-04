@@ -69,7 +69,7 @@ def validate_response(raw,context):
     if context.get('parent_proposal') and len(value['proposals'])<min(3,max(1,context.get('requested_proposal_count',1))):raise ValueError('模型未按人工要求拆分申请')
     if context.get('parent_proposal') and len(value['proposals'])>3:raise ValueError('单次评论返修最多提交3份申请')
     parent=context.get('parent_suggestion')
-    if parent and value['proposals'] and all(p.get('operation')==parent.get('operation') and p.get('instances')==parent.get('instances') and p.get('after')==parent.get('after') for p in value['proposals']):raise ValueError('模型原样退回旧申请，未落实人工修改意见。')
+    if parent and not context.get('initial_case_review') and value['proposals'] and all(p.get('operation')==parent.get('operation') and p.get('instances')==parent.get('instances') and p.get('after')==parent.get('after') for p in value['proposals']):raise ValueError('模型原样退回旧申请，未落实人工修改意见。')
     partitions=context.get('requested_partitions',[])
     if partitions:
         actual={p['after'].get('interaction'):p for p in value['proposals']}
@@ -92,6 +92,8 @@ def validate_response(raw,context):
         if row['uncertainty'].strip() in {'','说明证据不足之处'}:raise ValueError('Template echo or missing substantive uncertainty assessment')
     if seen!=instances:raise ValueError('Response did not classify every instance')
     for row in value['proposals']:
+        if context.get('scope_aliases') and set(row['instances'])-set(context['scope_aliases']):raise ValueError('申请越出当前来源块，请单独审查对应对象')
+        if set(row['instances'])&set(context.get('read_only_aliases',[])):raise ValueError('不得重复修改本轮保留的已通过内容')
         for addition in row.get('additions',[]):
             from astralogue.adapters.wiki import normalize
             def raw_texts(obj):

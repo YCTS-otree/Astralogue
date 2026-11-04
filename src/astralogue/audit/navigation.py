@@ -137,7 +137,7 @@ def request_source(store,source_id,action,reviewer,comment='',provider='local'):
         found=[n for n in nodes if any(value and normalize(v.text(bundle.texts.get(n.text,{})))==value for value in needles)]
         def view(n):return {'node':n.id,'text':bundle.texts.get(n.text,{}),'speaker':bundle.texts.get(n.speaker,{}),'data':n.data}
         instances={str(i):view(n) for i,n in enumerate(found)} or {'SOURCE':{'id':unit['id'],'kind':'wiki_source_instance','text':raw,'label':part['label'],'source':part['source']}}
-        ctx={'task':{'title':unit['task']},'chapter':unit['chapter_label'],'chapter_id':unit['chapter'],'source_unit_id':unit['id'],'instances':instances,
+        ctx={'review_round':store.setting('review_round'),'task':{'title':unit['task']},'chapter':unit['chapter_label'],'chapter_id':unit['chapter'],'source_unit_id':unit['id'],'instances':instances,
              'scenes':{'phase':{'id':unit['section_id'],'title':unit['section'],'start':unit['start'],'end':unit['end']}},
              'evidence':{'wiki':{'path':unit['path'],'sha256':unit['sha256'],'revision_id':unit['revision'],'source':part['source'],'label':part['label']},'graph':{'source_hashes':pack.metadata.get('narrative',{}).get('source_hashes',{})}}}
     repeated=any(s['trigger']=='repeat_inspection' for s in part.get('segments',[]))

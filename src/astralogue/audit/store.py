@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY,job TEXT,payload TEXT,s
 CREATE TABLE IF NOT EXISTS review_log(id INTEGER PRIMARY KEY,proposal TEXT,action TEXT,reviewer TEXT,at REAL,before TEXT,after TEXT);
 CREATE TABLE IF NOT EXISTS review_comments(id INTEGER PRIMARY KEY,proposal TEXT,reviewer TEXT,comment TEXT,action TEXT,job TEXT,at REAL);
 CREATE TABLE IF NOT EXISTS publications(proposal TEXT PRIMARY KEY,status TEXT,result TEXT,at REAL);
+CREATE TABLE IF NOT EXISTS proposal_links(job TEXT,proposal TEXT,reason TEXT,PRIMARY KEY(job,proposal));
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 '''
 

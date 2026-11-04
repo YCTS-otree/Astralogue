@@ -33,7 +33,7 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     if store.db.execute('SELECT deleted_at FROM proposals WHERE id=?',(pid,)).fetchone()[0] is not None:raise ValueError('申请已删除，请从原文重新发起审查')
     if store.db.execute('SELECT status FROM proposals WHERE id=?',(pid,)).fetchone()[0]=='withdrawn':raise ValueError('所属研究已撤销，请从原研究重新申请')
     parent=json.loads(row[0]);context=deepcopy(parent['context'])
-    for key in ['requested_partitions','requested_proposal_count','supersedes_job','retry_of_job','revision_contract_version','related_review_pass','review_of_job','draft_response','related_applications','related_provider']:
+    for key in ['requested_partitions','requested_proposal_count','supersedes_job','retry_of_job','revision_contract_version','related_review_pass','review_of_job','draft_response','related_applications','related_provider','initial_case_review']:
         context.pop(key,None)
     context['prior_results']=[]
     context['parent_suggestion']=deepcopy(parent['suggestion'])
@@ -43,6 +43,10 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     context['parent_proposal']=pid
     context['feedback_provider']=provider
     context['require_chinese_notes']=True
+    previous=store.db.execute('SELECT job FROM review_comments WHERE proposal=? AND job IS NOT NULL ORDER BY id DESC LIMIT 1',(pid,)).fetchone()
+    if previous:
+        context['supersedes_job']=previous[0]
+        with store.db:store.db.execute("UPDATE jobs SET status='cancelled',error='已收到更新的人工意见，停止旧轮次提交' WHERE id=? AND status IN ('pending','running')",(previous[0],))
     scope='human_feedback:'+digest([pid,comment.strip(),time.time_ns()])[:24]
     review(store,pid,'defer',reviewer)
     job=store.job(2,scope,context)
@@ -60,7 +64,7 @@ def worker(path,stop):
         try:
             with AuditStore(path) as store:
                 if store.setting('run_state') in {'paused','cancelled'}:continue
-                row=store.db.execute("SELECT scope,context FROM jobs WHERE scope LIKE 'human_feedback:%' AND status IN ('pending','running') ORDER BY rowid LIMIT 1").fetchone()
+                row=store.db.execute("SELECT scope,context FROM jobs WHERE scope LIKE 'human_feedback:%' AND status IN ('pending','running') ORDER BY CASE WHEN scope LIKE 'human_feedback:related:%' THEN 0 ELSE 1 END,rowid LIMIT 1").fetchone()
                 if row:
                     job_context=json.loads(row['context']);paid=job_context.get('feedback_provider')=='deepseek'
                     provider=Provider('https://api.deepseek.com/v1','deepseek-flash','deepseek',path.parent.parent.parent/'DEEPSEEK.key',2,8) if paid else Provider('http://127.0.0.1:8339/v1','Qwen3.5-9B-Q4_K_M')

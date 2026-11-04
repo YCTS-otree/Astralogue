@@ -21,7 +21,8 @@ def test_overlap_with_approved_is_reviewed_once_before_application(tmp_path):
         run(s,provider,1,scope=extra['scope'])
         assert provider.calls==2
         assert s.db.execute("SELECT COUNT(*) FROM jobs WHERE scope LIKE 'human_feedback:related:%'").fetchone()[0]==1
-        assert s.db.execute('SELECT status FROM proposals WHERE job=?',(extra['id'],)).fetchone()[0]=='pending'
+        assert s.db.execute('SELECT proposal FROM proposal_links WHERE job=?',(extra['id'],)).fetchone()[0]=='existing'
+        assert not s.db.execute('SELECT 1 FROM proposals WHERE job=?',(extra['id'],)).fetchone()
         assert s.db.execute("SELECT status FROM proposals WHERE id='existing'").fetchone()[0]=='approved'
 
 

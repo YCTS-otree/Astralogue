@@ -140,6 +140,12 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                 deps.append({'job':jid,'pass':dep['pass'],'instance_bindings':{a:{k:v for k,v in instance.items() if k in {'node','id','record_id','title','label'}} for a,instance in prior_context['instances'].items()},'result':json.loads(dep['result'])})
             else:
                 context=json.loads(row['context']);context['prior_results']=deps;context['require_chinese_notes']=True
+                if context.get('review_case_id') and not context.get('scope_aliases'):
+                    from .presentation import text
+                    from astralogue.adapters.wiki import normalize
+                    raw_scope=normalize(context.get('evidence',{}).get('wiki',{}).get('source',{}).get('raw',''))
+                    refs={**context.get('reference_instances',{}),**context['instances']}
+                    context['scope_aliases']=list(context['instances'])+[a for a,v in refs.items() if len(normalize(text(v.get('text'))))>=6 and normalize(text(v.get('text'))) in raw_scope]
                 prompt=messages(context,row['pass']);estimate=sum(len(m['content'].encode('utf8')) for m in prompt)
                 # Conservative upper bound; server performs actual token/context checks.
                 if estimate>max_input_tokens*3:
@@ -185,6 +191,11 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                         staged=stage(store,row,context,value,provider)
                         if not staged:
                             for n,p in enumerate(value['proposals']):
+                                from .dedup import existing
+                                duplicate=existing(store,context,p)
+                                if duplicate:
+                                    store.db.execute('INSERT OR IGNORE INTO proposal_links VALUES(?,?,?)',(row['id'],duplicate,'相同对象和修改，复用已有申请，不重复提交'))
+                                    continue
                                 pid=digest([row['id'],n,p]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,'suggestion':p,'status':'pending','origin':'LLM','game_verified':False}
                                 store.db.execute('INSERT OR IGNORE INTO proposals(id,job,payload) VALUES(?,?,?)',(pid,row['id'],canonical(payload)))
                             if context.get('supersedes_job'):

@@ -8,7 +8,7 @@ def refresh(store):
             if job['status'] in {'pending','running'}:state='awaiting_revision'
             elif job['status']=='failed':state='revision_failed'
             elif job['status']=='done':
-                children=store.db.execute("SELECT 1 FROM proposals WHERE job=? AND deleted_at IS NULL AND status NOT IN ('withdrawn','invalid_revision','superseded') LIMIT 1",(job['id'],)).fetchone()
+                children=store.db.execute("SELECT 1 FROM proposals WHERE (job=? OR id IN (SELECT proposal FROM proposal_links WHERE job=?)) AND deleted_at IS NULL AND status NOT IN ('withdrawn','invalid_revision','superseded') LIMIT 1",(job['id'],job['id'])).fetchone()
                 state='revision_submitted' if children else 'revision_failed'
             else:continue
             if row['status']!=state:store.db.execute('UPDATE proposals SET status=? WHERE id=?',(state,row['id']))

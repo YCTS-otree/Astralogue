@@ -39,8 +39,8 @@ def make_server(path, port=8340):
             query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if query.get('feedback_status'):
                 with AuditStore(path) as store:
-                    row=store.db.execute('SELECT job FROM review_comments WHERE proposal=? AND job IS NOT NULL ORDER BY id DESC LIMIT 1',(query['feedback_status'][0],)).fetchone()
-                    children=[r[0] for r in store.db.execute("SELECT id FROM proposals WHERE job=? AND status='pending'",(row[0],))] if row else []
+                    row=store.db.execute("SELECT c.job FROM review_comments c JOIN jobs j ON j.id=c.job WHERE c.proposal=? AND j.status!='cancelled' ORDER BY c.id DESC LIMIT 1",(query['feedback_status'][0],)).fetchone()
+                    children=[r[0] for r in store.db.execute("SELECT id FROM proposals WHERE (job=? OR id IN (SELECT proposal FROM proposal_links WHERE job=?)) AND deleted_at IS NULL AND status='pending'",(row[0],row[0]))] if row else []
                 self.send(200,json.dumps({'children':children}),'application/json; charset=utf-8');return
             pid = query.get('id', [None])[0]
             with AuditStore(path) as store:

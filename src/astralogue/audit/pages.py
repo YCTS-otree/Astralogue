@@ -86,7 +86,7 @@ def list_page(store,query):
             content+='<section class="scene-group"><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' · '+v.esc(item['task'])+'</div><h2>'+v.esc(loc['section'])+'</h2>';group=key
         preview=next((v.text(i.get('text')) for i in v.selected(p) if v.text(i.get('text'))),'需要补充具体剧情位置')
         if '{{' in preview:preview=loc['label']
-        if ctx.get('parent_proposal'):content+='<p class="pill">模型返修申请 · 需重新人工批准</p>'
+        if ctx.get('parent_proposal'):content+='<p class="pill">'+('本轮复审结果 · 等待人工批准' if ctx.get('initial_case_review') else '模型返修申请 · 需重新人工批准')+'</p>'
         position='当前阅读路径第 '+str(loc['path_order']+1)+' 条' if loc['path_order'] is not None else '按来源小节位置排列；执行位置待核实'
         content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · 提交 '+v.esc(v.submission_time(item['row'].get('created_at')))+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
     if group:content+='</section>'
@@ -190,7 +190,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
                 provider=json.loads(job[0]).get('feedback_provider','local') if job else 'local'
                 content+='<p>使用模型：'+('DeepSeek v41f · 低推理' if provider=='deepseek' else '本地离线模型')+'</p>'
             if comment['job_error']:content+='<p class="notice">'+v.esc(comment['job_error'])+'</p>'
-            children=list(store.db.execute('SELECT id FROM proposals WHERE job=?',(comment['job'],)))
+            children=list(store.db.execute('SELECT id FROM proposals WHERE job=? UNION SELECT proposal AS id FROM proposal_links WHERE job=?',(comment['job'],comment['job'])))
             if comment['job_status']=='done' and not children:content+='<p>该次旧流程只完成分类，未提交修订申请；不是仍在推理。请补充意见重新提交。</p>'
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
