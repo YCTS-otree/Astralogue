@@ -70,6 +70,8 @@ def worker(path,stop):
                     run(store,provider,1,8192 if paid else 6144,max_cost=5 if paid else 0,scope=row[0],max_input_tokens=128000 if paid else 30000)
                     with store.db:store.db.execute("UPDATE jobs SET status='failed',error=COALESCE(error,'预算不足或任务暂停，未完成调用；请核对预算后重新提交。') WHERE scope=? AND status='pending'",(row[0],))
                     with store.db:store.db.execute("UPDATE jobs SET status='failed' WHERE scope=? AND status='pending' AND error IS NOT NULL",(row[0],))
+                    from .progress import refresh
+                    refresh(store)
         except Exception as error:
             # Only a busy inference lock is retried. Configuration errors must
             # become visible rather than spin indefinitely.

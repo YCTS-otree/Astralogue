@@ -72,7 +72,7 @@ def list_page(store,query):
     tab=query.get('tab',['all'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
     for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
-    content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
+    content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab=all&status=revision_failed">修改失败</a><a href="/?tab=all&status=revision_submitted">已提交返修</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
     visible=[r for r in rows if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
@@ -158,11 +158,11 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if suggestion['conflicts']:content+='<p class="notice">有 '+str(len(suggestion['conflicts']))+' 项冲突，无法判断时请暂缓。</p>'
     content+='<p class="source-note">提交时间（北京时间）：'+v.esc(v.submission_time(row.get('created_at')))+'</p>'
     content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">批准后自动校验并增量发布到当前游玩包；失败原因会明确显示，不会清空存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
-    state=row['status'];deleted=bool(row.get('deleted_at'));locked=deleted or state in {'approved','rejected','awaiting_revision','withdrawn'}
-    labels={'withdrawn':'已随研究撤回','approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
+    state=row['status'];deleted=bool(row.get('deleted_at'));locked=deleted or state in {'approved','rejected','awaiting_revision','withdrawn','revision_submitted','revision_failed'}
+    labels={'revision_submitted':'已提交返修申请','revision_failed':'修改失败','withdrawn':'已随研究撤回','approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
     if locked:
         content+='<button disabled>'+('已从列表删除' if deleted else labels[state])+'</button>'
-        if not deleted and state=='awaiting_revision':content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
+        if not deleted and state in {'awaiting_revision','revision_failed'}:content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
     else:
         if ready:content+='<button class="primary" name="action" value="approve">批准</button><button name="action" value="request_changes">需要修改（提交评论）</button>'
         else:content+='<button class="primary" name="action" value="research_approve">批准研究方向（提交评论）</button>'

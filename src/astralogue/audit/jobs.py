@@ -206,4 +206,6 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                     if provider.name!='local':break
                 continue
         if store.setting('run_state') not in {'paused','cancelled'}:store.setting('run_state','budget_finished' if done>=max_batches else 'idle')
+        from .progress import refresh
+        refresh(store)
         return store.report()

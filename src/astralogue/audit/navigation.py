@@ -97,7 +97,7 @@ def filter_form(query,units,rows):
     body+=select('chapter','章',chapters.items())+select('mission','节 / 任务',[(m,m) for m in missions])+select('section','小节',[(s,s) for s in sections])
     body+='</div><p><label>关键词 <input name="q" value="'+v.esc(query.get('q',[''])[0])+'" placeholder="星核 容器 银狼"></label> <select name="match"><option value="all">包含全部关键词</option><option value="any"'+(' selected' if query.get('match',[''])[0]=='any' else '')+'>包含任一关键词</option></select></p>'
     body+='<label>查看 <select name="view"><option value="">审核申请</option><option value="source"'+(' selected' if query.get('view',[''])[0]=='source' else '')+'>原文范围 / 主动发起审查</option></select></label> '
-    body+=select('status','审核状态',[(k,v.STATUS.get(k,k)) for k in ['pending','awaiting_revision','approved','rejected']])
+    body+=select('status','审核状态',[(k,v.STATUS.get(k,k)) for k in ['pending','awaiting_revision','revision_failed','revision_submitted','approved','rejected']])
     body+='<input type="hidden" name="tab" value="'+v.esc(query.get('tab',['all'])[0])+'"><button>筛选 / 搜索</button><a href="/">清除</a><p class="subtle">多个关键词默认全部匹配，按中文子串搜索。原文范围也包括尚未提交申请的内容，审核状态只筛选申请。</p></form>'
     return body
 

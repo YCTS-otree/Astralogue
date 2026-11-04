@@ -50,7 +50,7 @@ def test_feedback_result_still_requires_new_human_review(tmp_path):
         run(s,FakeProvider(),1,scope=next_job['scope'])
         child=s.db.execute('SELECT status,payload FROM proposals WHERE job=?',(next_job['id'],)).fetchone()
         assert child['status']=='pending' and json.loads(child['payload'])['context']['parent_proposal']=='earlier'
-        assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='awaiting_revision'
+        assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='revision_submitted'
 
 def test_provider_selection_is_bound_to_feedback_job(tmp_path):
     path=tmp_path/'a.sqlite';seed(path)

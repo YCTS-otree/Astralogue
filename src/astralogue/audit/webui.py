@@ -44,6 +44,8 @@ def make_server(path, port=8340):
                 self.send(200,json.dumps({'children':children}),'application/json; charset=utf-8');return
             pid = query.get('id', [None])[0]
             with AuditStore(path) as store:
+                from .progress import refresh
+                refresh(store)
                 body = detail_page(store, pid, token, store.setting('webui_reviewer') or '', min(100,max(3,int(query.get('context',['3'])[0]))) if query.get('context',['3'])[0].isdigit() else 3) if pid else list_page(store, query)
             self.send(200 if body else 404, body or page('<h1>未找到这份提案</h1>'))
 
