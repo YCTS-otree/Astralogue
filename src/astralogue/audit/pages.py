@@ -12,7 +12,7 @@ h1{font-size:28px;line-height:1.4}h2{font-size:21px}h3{font-size:18px}.card,.sce
 .stats>div{flex:1;min-width:160px;background:white;border:1px solid #dfe5ee;border-radius:12px;padding:16px}.stats strong{font-size:27px;display:block}
 .proposal{display:grid;grid-template-columns:1fr auto;gap:16px;padding:18px 0;border-top:1px solid #e3e8f0}.proposal h3{margin:0}.preview{font-size:14px;color:#69758b}
 .pill{display:inline-block;font-size:13px;padding:4px 12px;background:#eaf0ff;color:#3458aa;border-radius:20px}
-.review-grid>aside{align-self:start;position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto}.review-grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px}.label{font-size:14px;font-weight:700;color:#5e6c83;margin:22px 0 12px}
+.review-location{margin:16px 0;padding:12px 0;border-top:1px solid #dfe5ee;border-bottom:1px solid #dfe5ee}.review-location dt{font-size:13px;color:#6b778d}.review-location dd{margin:0 0 10px;overflow-wrap:anywhere;font-weight:600}.review-grid>aside{align-self:start;position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto}.review-grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px}.label{font-size:14px;font-weight:700;color:#5e6c83;margin:22px 0 12px}
 .utterance{padding:12px 18px;margin:10px 0;background:#f8f9fc;border-left:3px solid #dce3ee;border-radius:0 9px 9px 0}.utterance p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px}.speaker{font-weight:700;color:#425778;font-size:14px}.selected{background:#edf3ff;border-color:#4b70d7}
 .point{padding:20px;border:2px dashed #7c96df;background:#f2f5ff;border-radius:12px;margin:22px 0}.point strong{font-size:18px}.branch{margin:18px 0 18px 18px;border-left:3px solid #7c96df;padding-left:18px}.return{padding:12px;border-radius:8px;background:#eaf6f1;color:#356456;font-size:14px}
 .notice{padding:14px;background:#fff4da;color:#75541c;border-radius:9px}.stage{font-style:italic;color:#718099;padding:8px}.source-note{font-size:14px}
@@ -148,6 +148,9 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     content+='<div class="label">'+('分支内容（原文保留）' if op=='move_to_optional_interaction' else '要审核的具体内容')+'</div><div class="branch">'+v.body(p)+'</div>'
     if op=='move_to_optional_interaction':content+='<div class="return">选择额外互动 → 阅读这段内容 → 返回本小节菜单；继续主线时跳过这段。</div>'
     content+='<div class="label">下几条剧情 / 主线继续位置</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in after) or '<p class="subtle">后续衔接尚未定位，或已到任务末尾。</p>')+'</section><aside><section class="card"><h3>你需要判断</h3><p>'+('这段是否应当由玩家主动选择，而不是自动混在主线里？' if op=='move_to_optional_interaction' else '这项建议是否与原作及已有来源相符？')+'</p><p class="source-note">来源：'+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+'</p>'
+    from .navigation import chapter_key,chapter_label
+    chapter=chapter_label('100001') if chapter_key(ctx)=='100001' else v.text(ctx.get('chapter')) or '待确认'
+    content+='<dl class="review-location"><dt>章</dt><dd>'+v.esc(chapter)+'</dd><dt>节 / 任务</dt><dd>'+v.esc(item['task'])+'</dd><dt>小节</dt><dd>'+v.esc(loc['section'])+'</dd></dl>'
     wiki=ctx.get('evidence',{}).get('wiki',{})
     if wiki:content+='<p class="source-note">BWIKI 缓存修订 '+v.esc(wiki.get('revision_id',wiki.get('revision','已固定版本')))+'</p>'
     if wiki.get('label'):content+='<p class="source-note">来源栏目：'+v.esc(wiki['label'])+'</p>'
