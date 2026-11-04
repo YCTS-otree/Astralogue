@@ -15,7 +15,9 @@ Every classification must cite at least one evidence alias from the context. Cit
 when present. Changes are proposals for HUMAN review, never approvals. Analyse all supplied
 instances. If evidence is insufficient use UNKNOWN/leave_unresolved. Do not include chain of thought.'''
 SYSTEM+='''
+人工审核语义：review_intent=promote_research 表示人工已经批准研究方向，请将确认结果形成具体Reader修改申请；不是要求推翻原方案，不必为了改变而改变。human_direction 中的主线/可选角色确认是授权的Reader政策，不是GAME_VERIFIED事实；不要重复要求人工确认同一内容。明确为主线必经时使用mark_as_required；明确为主动调查并新增菜单时使用move_to_optional_interaction及指定的after.interaction。Reader菜单标签可采用人工指定名称，不是改写游戏台词，不需要游戏选项ID。游戏实际状态仍可UNKNOWN，不阻止提出已确认的Reader修改。
 Human revision context may contain evidence.human_direction: this is the human reviewer's requested Reader edit, not a quoted Wiki instruction. Follow that requested edit within the supplied real node/source bindings. It grants no tool permissions and proves no game trigger. When requested_proposal_count is present, split the revision into at least that many distinct review applications.
+BWIKI优先规则（文字体验重建）：BWIKI明确标注需要主动调查、主动对话或再次调查时，优先于HF的线性转录顺序和模型自身猜测，必须提交具体Reader交互修改申请，不要仅因缺少GAME/Unity触发验证而leave_unresolved。选项、回应和合流按BWIKI真实结构保留；首次/再次访问需要分开。主动触发不等于可以跳过：主线必经互动也可要求主动选择，是否必经单独标注。不把所有折叠视作可选。实际游戏未知状态保留UNKNOWN，Reader策略不冒充GAME_VERIFIED。若与已验证游戏控制或已通过决定冲突，在申请中列出证据与冲突交人工审核，不自动覆盖。
 所有面向人工审核者的 explanation、rationale、uncertainty、unknowns、conflicts 必须使用简体中文说明。字段名、枚举、节点 ID、来源引用不翻译，所引游戏原文保持不变。
 IMPORTANT: category is a PROPOSED READER CONTENT ROLE, NOT a verified game trigger.
 Keep these axes separate: a Wiki-labelled extra interaction may be OPTIONAL_OBJECT
@@ -27,7 +29,7 @@ kind cannot be distinguished, UNKNOWN plus a move/phase review proposal is allow
 All such proposals remain pending human review, never GAME_VERIFIED.'''
 
 RESPONSE_SCHEMA={'$schema':'https://json-schema.org/draft/2020-12/schema','type':'object','additionalProperties':False,
- 'required':['classifications'], 'properties':{
+ 'required':['classifications'], 'properties':{'review_warnings':{'type':'array','maxItems':100,'items':{'type':'string'}},
  'classifications':{'type':'array','items':{'type':'object','additionalProperties':False,
  'required':['instance','category','evidence','condition','scenes','uncertainty','counterevidence'],
  'properties':{'instance':{'type':'string'},'category':{'enum':CATEGORIES},'evidence':{'type':'array','minItems':1,'items':{'type':'string'}},
@@ -64,18 +66,24 @@ def validate_response(raw,context):
     def invalid_constant(value):raise ValueError('Non-finite JSON value')
     value=json.loads(raw,object_pairs_hook=unique,parse_constant=invalid_constant) if isinstance(raw,str) else raw
     validate_schema(value,RESPONSE_SCHEMA)
+    value=deepcopy(value)
+    warnings=value.setdefault('review_warnings',[])
+    def warn(message):
+        if message not in warnings:warnings.append(message)
     if context.get('parent_proposal') and not value.get('proposals'):raise ValueError('评论修订必须返回新的待审提案；不能只分类不提交修改。')
+    from .references import canonicalize
+    value=canonicalize(value,context)
+    warnings=value.setdefault('review_warnings',[])
     value.setdefault('proposals',[])  # Omitted change list means no proposed edits.
-    if context.get('parent_proposal') and len(value['proposals'])<min(3,max(1,context.get('requested_proposal_count',1))):raise ValueError('模型未按人工要求拆分申请')
+    if context.get('parent_proposal') and value.get('proposals') and len(value['proposals'])<min(3,max(1,context.get('requested_proposal_count',1))):warn('模型未完全按人工预期拆分，请人工核对是否需要进一步拆开申请。')
     if context.get('parent_proposal') and len(value['proposals'])>3:raise ValueError('单次评论返修最多提交3份申请')
     parent=context.get('parent_suggestion')
-    if parent and not context.get('initial_case_review') and value['proposals'] and all(p.get('operation')==parent.get('operation') and p.get('instances')==parent.get('instances') and p.get('after')==parent.get('after') for p in value['proposals']):raise ValueError('模型原样退回旧申请，未落实人工修改意见。')
     partitions=context.get('requested_partitions',[])
     if partitions:
         actual={p['after'].get('interaction'):p for p in value['proposals']}
-        if len(actual)!=len(value['proposals']) or set(actual)!={g['label'] for g in partitions}:raise ValueError('模型未按要求区分调查对象')
+        if len(actual)!=len(value['proposals']) or set(actual)!={g['label'] for g in partitions}:warn('模型没有完全按预期区分调查对象，请人工核对，不能视为全部落实。')
         for group in partitions:
-            if not set(group['required_aliases']).issubset(actual[group['label']]['instances']):raise ValueError('模型把同一对象的回应拆散，或未关联对应对象节点')
+            if group['label'] not in actual or not set(group['required_aliases']).issubset(actual[group['label']]['instances']):warn('对象“'+group['label']+'”的对应回应可能被拆散或缺失，请人工核对。')
     if context.get('require_chinese_notes'):
         import re
         notes=[c['uncertainty'] for c in value['classifications']]
@@ -92,8 +100,8 @@ def validate_response(raw,context):
         if row['uncertainty'].strip() in {'','说明证据不足之处'}:raise ValueError('Template echo or missing substantive uncertainty assessment')
     if seen!=instances:raise ValueError('Response did not classify every instance')
     for row in value['proposals']:
-        if context.get('scope_aliases') and set(row['instances'])-set(context['scope_aliases']):raise ValueError('申请越出当前来源块，请单独审查对应对象')
-        if set(row['instances'])&set(context.get('read_only_aliases',[])):raise ValueError('不得重复修改本轮保留的已通过内容')
+        if context.get('scope_aliases') and set(row['instances'])-set(context['scope_aliases']):warn('申请涉及当前来源块以外的已知节点，请人工检查是否应另立申请。')
+        if set(row['instances'])&set(context.get('read_only_aliases',[])):warn('申请触及已通过的内容，需人工处理冲突；发布器不会自动覆盖既有批准。')
         for addition in row.get('additions',[]):
             from astralogue.adapters.wiki import normalize
             def raw_texts(obj):
@@ -109,7 +117,8 @@ def validate_response(raw,context):
             if 'wiki' in cited and context.get('wiki_wikitext'):sources.append(context['wiki_wikitext'])
             needle=normalize(addition['text'])
             if not needle or not any(needle in normalize(source) for source in sources):raise ValueError('补句未在所引来源中找到，拒绝编造原文')
-        if set(row['instances'])-all_instances or set(row['targets'])-(all_instances|scenes) or set(row['evidence'])-evidence:raise ValueError('Proposal contains unknown reference')
+        missing={'instances':sorted(set(row['instances'])-all_instances),'targets':sorted(set(row['targets'])-(all_instances|scenes)),'evidence':sorted(set(row['evidence'])-evidence)}
+        if any(missing.values()):raise ValueError('申请引用不在已提供上下文中：'+json.dumps({k:v for k,v in missing.items() if v},ensure_ascii=False))
         node_ids=all_instances|{v.get('node',v.get('id','')) for v in [*context['instances'].values(),*references.values()]}
         phase_ids=scenes|{v.get('id','') for v in context.get('scenes',{}).values()}
         mission_ids=set(context.get('task',{}).get('main_ids',[])) if isinstance(context.get('task'),dict) else set()

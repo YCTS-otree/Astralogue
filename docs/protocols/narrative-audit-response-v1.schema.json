@@ -6,6 +6,13 @@
     "classifications"
   ],
   "properties": {
+    "review_warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string"
+      }
+    },
     "classifications": {
       "type": "array",
       "items": {

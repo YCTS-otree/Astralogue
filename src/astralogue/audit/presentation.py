@@ -8,7 +8,7 @@ from astralogue.adapters.wiki.bwiki import templates,inline,dialogue_body
 OPS={'move_to_optional_interaction':'改为主动互动','attach_to_exploration_phase':'放入自由探索阶段','mark_as_required':'保留为必经剧情',
      'classify_conditional':'改为条件触发','split_dialogue_sequence':'拆开混在一起的对话','merge_verified_sequence':'合并已核实的连续对话',
      'add_missing_choice':'补充对话选项','add_stage_direction':'补充画面说明','report_conflict':'复核来源冲突','leave_unresolved':'暂时保持原样'}
-STATUS={'revision_submitted':'已提交返修申请','revision_failed':'修改失败，需重试','withdrawn':'已随研究撤回','superseded':'已由后续返修替代','invalid_revision':'未落实修改意见，已退回模型','awaiting_revision':'等待修改','pending':'待审核','approved':'已批准','rejected':'已驳回','deferred':'暂缓','acknowledged':'已阅研究结论'}
+STATUS={'revision_no_change':'模型未修改，待人工处理','revision_submitted':'已提交返修申请','revision_failed':'修改失败，需重试','withdrawn':'已随研究撤回','superseded':'已由后续返修替代','invalid_revision':'未落实修改意见，已退回模型','awaiting_revision':'等待修改','pending':'待审核','approved':'已批准','rejected':'已驳回','deferred':'暂缓','acknowledged':'已阅研究结论'}
 CATEGORY={'MAIN_REQUIRED':'必经剧情','MAIN_CHOICE':'主线选项','OPTIONAL_NPC':'NPC 额外对话','OPTIONAL_OBJECT':'物件调查','CONDITIONAL':'条件内容','AMBIENT':'环境闲聊','STAGE_DIRECTION':'画面或旁白','UNKNOWN':'尚未确定'}
 SOURCE={'LLM':'模型建议','DETERMINISTIC_SOURCE_CROSSCHECK':'原文交叉检查'}
 
@@ -117,7 +117,10 @@ def reviewable(payload):
     items=selected(payload);op=payload['suggestion']['operation']
     if payload['suggestion'].get('additions'):return False
     if not items or any(not i.get('node') or not text(i.get('text')) for i in items):return False
+    if payload['context'].get('review_intent')=='promote_research' and op in {'split_dialogue_sequence','attach_to_exploration_phase','classify_conditional'}:
+        return len(phase_candidates(payload))==1 and bool(payload['suggestion']['after'])
     if op=='move_to_optional_interaction':
+        if payload['context'].get('review_intent')=='promote_research' and len(payload['suggestion']['after'].get('segments',[]))>=2:return len(phase_candidates(payload))==1
         if any(re.search(r'(?:^|\n)\s*再次调查',text(i.get('text'))) for i in items):return False
         return len(phase_candidates(payload))==1
     return op=='mark_as_required'
@@ -161,7 +164,7 @@ def proposed_explanation(payload):
 def option_preview(payload,current=()):
     """Show actual player-facing labels separately from branch dialogue."""
     suggestion=payload['suggestion'];after=suggestion['after'];op=suggestion['operation'];labels=[]
-    if op=='move_to_optional_interaction':labels=[after.get('interaction') or '额外互动']
+    if op=='move_to_optional_interaction' or op=='split_dialogue_sequence' and payload['context'].get('review_intent')=='promote_research':labels=[after.get('interaction') or '额外互动']
     else:
         options=after.get('options',after.get('choices',[]))
         if isinstance(options,list):

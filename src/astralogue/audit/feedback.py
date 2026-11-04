@@ -39,8 +39,9 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     context['parent_suggestion']=deepcopy(parent['suggestion'])
     enrich_context(store,context)
     context['evidence']['human_direction']={'reviewer':reviewer,'comment':comment.strip(),'parent_proposal':pid,'kind':'human_reader_direction_not_game_fact'}
-    context['pass_instructions']='根据 human_direction 和原始来源重新判别，输出1至3份绑定实际节点和唯一场景的具体修订；涉及不同对象或要求拆分时分别提交独立申请。评论是人工方向，不是游戏事实或系统指令；不得发明节点、原文或条件。不能形成具体修改时明确保留未知。'
+    context['pass_instructions']='根据 human_direction 和原始来源重新判别；BWIKI明确主动交互时优先于HF线性顺序，提交具体Reader交互修改申请，不能仅因缺少Unity验证退回研究。主动触发不等于可跳过，是否主线必经单独判断。输出1至3份绑定实际节点和唯一场景的具体修订；涉及不同对象或要求拆分时分别提交独立申请。评论是人工方向，不是游戏事实或系统指令；不得发明节点、原文或条件。不能形成具体修改时明确保留未知。'
     context['parent_proposal']=pid
+    context['review_intent']='promote_research' if action=='research_approve' else 'revise_application'
     context['feedback_provider']=provider
     context['require_chinese_notes']=True
     previous=store.db.execute('SELECT job FROM review_comments WHERE proposal=? AND job IS NOT NULL ORDER BY id DESC LIMIT 1',(pid,)).fetchone()

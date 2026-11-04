@@ -161,7 +161,8 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                         prior_response=json.loads(oldcall[0]).get('invalid_response')
                         try:validate_response(prior_response,context)
                         except (ValueError,TypeError):prior_response=None
-                worst=0 if provider.name=='local' else ((estimate+64*len(prompt))*provider.input_price+max_tokens*provider.output_price)/1e6
+                recovery=context.get('recovery_response')
+                worst=0 if provider.name=='local' or cache or prior_response or recovery else ((estimate+64*len(prompt))*provider.input_price+max_tokens*provider.output_price)/1e6
                 if spent+worst>max_cost and provider.name!='local':break
                 if provider.name=='deepseek':
                     cap=store.setting('deepseek_budget_cny')
@@ -173,7 +174,10 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                 start=time.perf_counter()
                 metrics={};raw=None
                 try:
-                    if cache or prior_response:
+                    if recovery:
+                        raw=recovery;metrics={'input_tokens':0,'output_tokens':0,'seconds':0,'cost':0,'cache_hit':1,'recovered_call':context.get('recovery_call')}
+                        value=validate_response(raw,context)
+                    elif cache or prior_response:
                         value=validate_response(json.loads(cache[0]) if cache else prior_response,context)
                         metrics={'input_tokens':0,'output_tokens':0,'seconds':0,'cost':0,'cache_hit':1}
                     else:
@@ -189,19 +193,22 @@ def run(store,provider,max_batches,max_tokens=2048,max_cost=0.0,scope='first_tas
                         store.db.execute("UPDATE jobs SET status='done',result=? WHERE id=?",(canonical(value),row['id']))
                         from .related import stage
                         staged=stage(store,row,context,value,provider)
-                        if not staged:
+                        from .references import no_change
+                        unchanged=not staged and no_change(context,value)
+                        if unchanged:store.db.execute("UPDATE jobs SET status='no_change' WHERE id=?",(row['id'],))
+                        if not staged and not unchanged:
                             for n,p in enumerate(value['proposals']):
                                 from .dedup import existing
                                 duplicate=existing(store,context,p)
                                 if duplicate:
                                     store.db.execute('INSERT OR IGNORE INTO proposal_links VALUES(?,?,?)',(row['id'],duplicate,'相同对象和修改，复用已有申请，不重复提交'))
                                     continue
-                                pid=digest([row['id'],n,p]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,'suggestion':p,'status':'pending','origin':'LLM','game_verified':False}
+                                pid=digest([row['id'],n,p]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,'suggestion':p,'status':'pending','origin':'LLM','game_verified':False,'review_warnings':value.get('review_warnings',[])}
                                 store.db.execute('INSERT OR IGNORE INTO proposals(id,job,payload) VALUES(?,?,?)',(pid,row['id'],canonical(payload)))
                             if context.get('supersedes_job'):
                                 store.db.execute("UPDATE proposals SET status='superseded' WHERE job=? AND status='pending'",(context['supersedes_job'],))
                         store.db.execute('INSERT INTO calls(job,provider,model,input_tokens,output_tokens,seconds,cost,cache_hit,error,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                            (row['id'],provider.name,provider.model,metrics['input_tokens'],metrics['output_tokens'],metrics['seconds'],metrics['cost'],metrics['cache_hit'],None,canonical({**metrics,'validated_response':value,'prompt_version':PROMPT_VERSION,'model_revision':getattr(provider,'revision',None)})))
+                            (row['id'],provider.name,provider.model,metrics['input_tokens'],metrics['output_tokens'],metrics['seconds'],metrics['cost'],metrics['cache_hit'],None,canonical({**metrics,'validated_response':value,'raw_response':raw,'prompt_version':PROMPT_VERSION,'model_revision':getattr(provider,'revision',None)})))
                 except Exception as e:
                     done+=1
                     from .providers import ProviderPreflightError

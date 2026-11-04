@@ -84,13 +84,13 @@ def list_page(store,query):
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
     applications=[r for r in rows if not input_task(r)]
     pending=[r for r in applications if r['row']['status']=='pending']
-    cards=[(sum(r['ready'] for r in pending),'待审核 · 可发布修改','pending','changes'),(sum(not r['ready'] for r in pending),'待审核 · 研究/待补全','pending','research'),
+    cards=[(sum(r['ready'] for r in pending),'待审核 · 具体修改','pending','changes'),(sum(not r['ready'] for r in pending),'待审核 · 研究/待补全','pending','research'),
            (sum(r['row']['status']=='awaiting_revision' for r in rows),'模型处理中','awaiting_revision','all'),
            (sum(r['row']['status']=='approved' for r in applications),'人工已批准','approved','all'),(sum(r['row']['status']=='rejected' for r in applications),'人工已驳回','rejected','all')]
     for count,label,card_status,card_tab in cards:content+='<div><a href="'+v.esc(url(query,tab=card_tab,status=card_status,offset=0))+'"><strong>'+str(count)+'</strong>'+label+'</a></div>'
     content+='<p class="subtle">以上是当前章节/关键词范围的状态总览；已完成的自动输入任务不计作研究申请。</p>'
     content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab=all&status=revision_failed">修改失败</a><a href="/?tab=all&status=revision_submitted">已提交返修</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    pool=rows if status in {'awaiting_revision','revision_failed'} else applications
+    pool=rows if status in {'awaiting_revision','revision_failed','revision_no_change'} else applications
     visible=[r for r in pool if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
@@ -130,6 +130,8 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
     before,after,contiguous=v.windows(p,baseline(store),context_count)
     content='<a href="/?tab='+('changes' if ready else 'research')+'">← 返回剧情列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
+    if p.get('review_warnings'):
+        content+='<section class="notice"><strong>请人工核对（未将此申请提前判为失败）</strong>'+''.join('<p>'+v.esc(warning)+'</p>' for warning in p['review_warnings'])+'</section>'
     if input_task(item):
         content+='<section class="notice"><strong>解析器输入历史，不是另一份待审申请</strong><p>正文与模型确认结果可能相同，不需要重复审核。请打开实际审核申请：</p>'
         for result in input_results(store,pid):content+='<p><a href="/?id='+result+'">查看实际审核申请 →</a></p>'
@@ -161,6 +163,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
                         for edge in edges:
                             if edge.kind=='option':current_options.append({'label':live.text(edge.text,'CHS',edge.value),'detail':'当前游玩包 · '+('进入本段' if edge.target in selected_nodes else '其他入口')})
         except (OSError,ValueError):pass
+    if ready and (op not in {'move_to_optional_interaction','mark_as_required'} or any('再次调查' in v.text(instance.get('text')) for instance in v.selected(p))):content+='<p class="notice">这是一份有明确目标的具体修改申请，但当前发布器尚未支持该类结构操作；批准会保存决定，不能假装已经完成发布。</p>'
     content+='</div>'+v.option_preview(p,current_options)
     rationale=suggestion.get('rationale','')
     explanation=suggestion.get('explanation') or (rationale if any('\u4e00'<=c<='\u9fff' for c in rationale) else '')
@@ -183,11 +186,13 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if suggestion['conflicts']:content+='<p class="notice">有 '+str(len(suggestion['conflicts']))+' 项冲突，无法判断时请暂缓。</p>'
     content+='<p class="source-note">提交时间（北京时间）：'+v.esc(v.submission_time(row.get('created_at')))+'</p>'
     content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">批准后自动校验并增量发布到当前游玩包；失败原因会明确显示，不会清空存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
-    state=row['status'];deleted=bool(row.get('deleted_at'));locked=deleted or state in {'approved','rejected','awaiting_revision','withdrawn','revision_submitted','revision_failed'}
-    labels={'revision_submitted':'已提交返修申请','revision_failed':'修改失败','withdrawn':'已随研究撤回','approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
+    state=row['status'];deleted=bool(row.get('deleted_at'));locked=deleted or state in {'approved','rejected','awaiting_revision','withdrawn','revision_submitted','revision_failed','revision_no_change'}
+    labels={'revision_no_change':'模型未修改','revision_submitted':'已提交返修申请','revision_failed':'修改失败','withdrawn':'已随研究撤回','approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
     if locked:
         content+='<button disabled>'+('已从列表删除' if deleted else labels[state])+'</button>'
-        if not deleted and state in {'awaiting_revision','revision_failed'}:content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
+        if not deleted and state=='revision_no_change':
+            content+=('<button name="action" value="approve">保留原方案并批准</button>' if ready else '<button name="action" value="research_approve">批准研究方向并建立具体申请（需评论）</button>')
+        if not deleted and state in {'awaiting_revision','revision_failed','revision_no_change'}:content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
     else:
         if ready:content+='<button class="primary" name="action" value="approve">批准</button><button name="action" value="request_changes">需要修改（提交评论）</button>'
         else:content+='<button class="primary" name="action" value="research_approve">批准研究方向（提交评论）</button>'
@@ -208,13 +213,16 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if comments:
         content+='<section class="card"><h2>人工评论与模型修订进度</h2>'
         for comment in comments:
-            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已提交新申请，请再次人工审核','failed':'模型处理失败，原建议未自动应用','cancelled':'研究已撤销，任务已取消'}.get(comment['job_status'],'等待处理')
+            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已提交新申请，请再次人工审核','no_change':'模型未改变方案（不作为调用失败，不生成重复申请）','failed':'模型处理失败，原建议未自动应用','cancelled':'研究已撤销，任务已取消'}.get(comment['job_status'],'等待处理')
             content+='<h3>'+v.esc(comment['reviewer'])+'</h3><p>'+v.esc(comment['comment'])+'</p><p>'+status+'</p>'
             if comment['job']:
                 job=store.db.execute('SELECT context FROM jobs WHERE id=?',(comment['job'],)).fetchone()
                 if job and json.loads(job[0]).get('related_review_pass'):content+='<p>阶段：额外一轮关联复核（包含已批准申请）</p>'
                 provider=json.loads(job[0]).get('feedback_provider','local') if job else 'local'
                 content+='<p>使用模型：'+('DeepSeek v41f · 低推理' if provider=='deepseek' else '本地离线模型')+'</p>'
+            if comment['job_status']=='no_change':
+                response=store.db.execute('SELECT result FROM jobs WHERE id=?',(comment['job'],)).fetchone()
+                for proposal in json.loads(response[0] or '{}').get('proposals',[]):content+='<p>'+v.esc(proposal.get('explanation') or proposal.get('rationale',''))+'</p>'
             if comment['job_error']:content+='<p class="notice">'+v.esc(comment['job_error'])+'</p>'
             children=list(store.db.execute('SELECT id FROM proposals WHERE job=? UNION SELECT proposal AS id FROM proposal_links WHERE job=?',(comment['job'],comment['job'])))
             if comment['job_status']=='done' and not children:content+='<p>该次旧流程只完成分类，未提交修订申请；不是仍在推理。请补充意见重新提交。</p>'

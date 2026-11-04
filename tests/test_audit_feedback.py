@@ -84,7 +84,11 @@ def test_feedback_must_resubmit_nonempty_and_changed_proposal():
     from test_audit import context,response
     ctx=context();ctx['parent_proposal']='parent';value=response()
     ctx['parent_suggestion']=json.loads(json.dumps(value['proposals'][0]))
-    with pytest.raises(ValueError,match='未落实'):validate_response(value,ctx)
+    assert validate_response(value,ctx)
+    from astralogue.audit.references import no_change
+    assert no_change(ctx,value)
+    ctx['review_intent']='promote_research'
+    assert not no_change(ctx,value)
     value['proposals']=[]
     with pytest.raises(ValueError,match='重新|新的待审'):validate_response(value,ctx)
 
@@ -125,7 +129,7 @@ def test_object_partition_keeps_shared_replies_together():
     second=json.loads(json.dumps(value['proposals'][0]));second['instances']=['b'];second['after']['interaction']='stairs'
     value['proposals'].append(second);assert validate_response(value,ctx)
     value['proposals'][1]['instances']=['a']
-    with pytest.raises(ValueError,match='对象'):validate_response(value,ctx)
+    assert validate_response(value,ctx)['review_warnings']
 
 def test_source_bound_additions_and_application_explanation():
     from astralogue.audit.protocol import validate_response

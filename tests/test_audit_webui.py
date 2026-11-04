@@ -157,7 +157,7 @@ def test_overview_does_not_count_finished_input_as_pending_research(tmp_path):
         s.db.execute("UPDATE proposals SET status='approved' WHERE id='earlier'");s.db.commit()
         body=list_page(s,{'status':['awaiting_revision']})
         assert '<strong>1</strong>待审核 · 研究/待补全' in body
-        assert '<strong>1</strong>待审核 · 可发布修改' in body
+        assert '<strong>1</strong>待审核 · 具体修改' in body
         assert '当前筛选：等待修改，匹配 0 项' in body and '查看待审核申请' in body
 
 def test_input_url_resolves_to_real_application_with_history_escape(tmp_path):

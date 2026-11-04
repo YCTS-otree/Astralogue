@@ -50,6 +50,7 @@ def stage(store,row,context,value,provider):
         'related_applications':applications,'feedback_provider':provider.name,
         'related_provider':{'model':provider.model,'endpoint':provider.endpoint,'input_price':getattr(provider,'input_price',None),'output_price':getattr(provider,'output_price',None),'revision':getattr(provider,'revision',None)},
         'pass_instructions':'这是额外且仅一次的关联复核：审查 draft_response 和 related_applications（包括已批准/发布申请）。核对重复、互补、冲突和触发上下文，不把相同文本误合并。尊重人工评论及原始证据；已批准内容不能自动覆盖。输出最终待人工审核的1–3份提案，中文说明关联及处理依据。无法确定时明确报告冲突或未知，不得编造。'})
+    next_context.pop('recovery_response',None)
     job=store.job(row['pass'],'human_feedback:related:'+digest([row['id'],applications])[:24],next_context)
     store.db.execute('UPDATE review_comments SET job=? WHERE job=?',(job,row['id']))
     return job
