@@ -22,7 +22,9 @@ def signature(context,proposals):
 def related(store,context,value):
     nodes,texts,phases=signature(context,value['proposals']);task=(context.get('task') or {}).get('title');result=[]
     for row in store.db.execute("SELECT * FROM proposals WHERE deleted_at IS NULL AND status NOT IN ('withdrawn','superseded','invalid_revision')"):
-        payload=json.loads(row['payload']);ctx=payload['context'];other_nodes,other_texts,other_phases=signature(ctx,[payload['suggestion']]);reasons=[]
+        payload=json.loads(row['payload']);ctx=payload['context']
+        if ctx.get('review_round') and not ctx.get('parent_proposal') and payload.get('origin')=='DETERMINISTIC_SOURCE_CROSSCHECK':continue
+        other_nodes,other_texts,other_phases=signature(ctx,[payload['suggestion']]);reasons=[]
         if context.get('parent_proposal')==row['id']:reasons.append('本次返修的原申请')
         if nodes&other_nodes:reasons.append('相同执行节点')
         if task and task==(ctx.get('task') or {}).get('title'):

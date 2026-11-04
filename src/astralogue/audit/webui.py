@@ -5,7 +5,7 @@ import secrets
 import urllib.parse
 from .store import AuditStore
 from .review import review
-from .pages import page, list_page, detail_page, ordered
+from .pages import page, list_page, detail_page, ordered, input_task, input_results
 from .presentation import esc
 
 
@@ -46,6 +46,11 @@ def make_server(path, port=8340):
             with AuditStore(path) as store:
                 from .progress import refresh
                 refresh(store)
+                if pid and query.get('history',[''])[0]!='1':
+                    item=next((r for r in ordered(store) if r['row']['id']==pid),None)
+                    results=input_results(store,pid) if item and input_task(item) else []
+                    if len(results)==1:
+                        self.send_response(303);self.send_header('Location','/?id='+urllib.parse.quote(results[0],safe=''));self.end_headers();return
                 body = detail_page(store, pid, token, store.setting('webui_reviewer') or '', min(100,max(3,int(query.get('context',['3'])[0]))) if query.get('context',['3'])[0].isdigit() else 3) if pid else list_page(store, query)
             self.send(200 if body else 404, body or page('<h1>未找到这份提案</h1>'))
 
@@ -87,6 +92,7 @@ def make_server(path, port=8340):
                     for selected_id in ids:
                         current=rows.get(selected_id)
                         if not current:raise ValueError('未找到提案')
+                        if input_task(current) and input_results(store,selected_id) and action not in {'undo_research','undo_reject'}:raise ValueError('这是解析输入历史，请在实际审核申请中操作，勿重复审批')
                         if current['row']['status']=='withdrawn':raise ValueError('此申请已随研究撤回，请从原研究重新申请')
                         published=store.db.execute('SELECT status FROM publications WHERE proposal=?',(selected_id,)).fetchone()
                         if action in {'reject','edit','defer','request_changes'} and published and published[0] in {'published','already_published'}:raise ValueError('此提案已发布，请先回滚对应修订，再修改审核结论。')

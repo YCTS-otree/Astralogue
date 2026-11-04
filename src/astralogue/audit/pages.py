@@ -69,6 +69,12 @@ def input_task(item):
     return bool(ctx.get('review_round') and not ctx.get('parent_proposal') and item['row']['status']!='pending')
 
 
+def input_results(store,pid):
+    latest=store.db.execute('SELECT job FROM review_comments WHERE proposal=? AND job IS NOT NULL ORDER BY id DESC LIMIT 1',(pid,)).fetchone()
+    if not latest:return []
+    return [r[0] for r in store.db.execute("SELECT id FROM proposals WHERE (job=? OR id IN (SELECT proposal FROM proposal_links WHERE job=?)) AND deleted_at IS NULL AND status NOT IN ('withdrawn','superseded','invalid_revision')",(latest[0],latest[0]))]
+
+
 def list_page(store,query):
     from .navigation import catalog,filter_form,filter_proposals,source_page,url
     rows=ordered(store);units=catalog()
@@ -124,6 +130,12 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
     before,after,contiguous=v.windows(p,baseline(store),context_count)
     content='<a href="/?tab='+('changes' if ready else 'research')+'">← 返回剧情列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
+    if input_task(item):
+        content+='<section class="notice"><strong>解析器输入历史，不是另一份待审申请</strong><p>正文与模型确认结果可能相同，不需要重复审核。请打开实际审核申请：</p>'
+        for result in input_results(store,pid):content+='<p><a href="/?id='+result+'">查看实际审核申请 →</a></p>'
+        content+='</section>'
+    elif ctx.get('initial_case_review') and ctx.get('parent_proposal'):
+        content+='<p class="source-note">这是模型提交的实际审核申请；<a href="/?id='+v.esc(ctx['parent_proposal'])+'&history=1">原始解析输入（历史，无需重复审核）</a></p>'
     if not ready:content+='<p class="notice">这项是研究结论或尚未定位的片段，还不能直接改变播放。请先补充具体台词与位置，不需要审批笼统描述。</p>'
     content+='<nav class="nav"><a href="/?id='+pid+'&context='+str(min(100,context_count+5))+'">向前／向后各多加载 5 条剧情</a><span>当前前后各 '+str(context_count)+' 条，最多 100 条；沿当前已记录路径展示</span></nav>'
     content+='<div class="review-grid"><section><div class="label">上几条剧情</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in before) or '<p class="subtle">上文尚未定位，或已到任务开头。</p>')
@@ -189,6 +201,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     if ctx.get('related_applications'):
         content+='<section class="card"><h3>生成前已额外复核的关联申请</h3>'
         for related in ctx['related_applications']:
+            if related['id']==ctx.get('parent_proposal') and ctx.get('initial_case_review'):continue
             content+='<p><a href="/?id='+related['id']+'">关联申请</a> · '+v.esc(v.STATUS.get(related['status'],related['status']))+' · '+v.esc('、'.join(related['reasons']))+'</p>'
         content+='</section>'
     comments=list(store.db.execute('SELECT c.*,j.status AS job_status,j.error AS job_error FROM review_comments c LEFT JOIN jobs j ON j.id=c.job WHERE c.proposal=? ORDER BY c.id',(pid,)))
@@ -208,7 +221,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'
-    peers=[r for r in rows if r['ready']==ready and (row.get('deleted_at') or r['row'].get('deleted_at') is None)];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
+    peers=[r for r in rows if (not input_task(r) or input_task(item)) and r['ready']==ready and (row.get('deleted_at') or r['row'].get('deleted_at') is None)];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
     if index:content+='<a href="/?id='+peers[index-1]['row']['id']+'">← 上一片段</a>'
     if index+1<len(peers):content+='<a href="/?id='+peers[index+1]['row']['id']+'">下一片段 →</a>'
     return page(content+'</nav>')

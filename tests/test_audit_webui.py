@@ -159,3 +159,21 @@ def test_overview_does_not_count_finished_input_as_pending_research(tmp_path):
         assert '<strong>1</strong>待审核 · 研究/待补全' in body
         assert '<strong>1</strong>待审核 · 可发布修改' in body
         assert '当前筛选：等待修改，匹配 0 项' in body and '查看待审核申请' in body
+
+def test_input_url_resolves_to_real_application_with_history_escape(tmp_path):
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        p=json.loads(s.db.execute("SELECT payload FROM proposals WHERE id='earlier'").fetchone()[0]);p['context']['review_round']='round'
+        s.db.execute("UPDATE proposals SET payload=?,status='revision_submitted' WHERE id='earlier'",(json.dumps(p),))
+        ctx=p['context'].copy();ctx['parent_proposal']='earlier';job=s.job(2,'human_feedback:test',ctx)
+        child=json.loads(json.dumps(p));child['context']=ctx
+        s.db.execute('INSERT INTO proposals(id,job,payload) VALUES(?,?,?)',('actual',job,json.dumps(child)))
+        s.db.execute("UPDATE jobs SET status='done' WHERE id=?",(job,))
+        s.db.execute("INSERT INTO review_comments(proposal,reviewer,comment,action,job,at) VALUES('earlier','test','input','rerun',?,1)",(job,));s.db.commit()
+    server=make_server(path,0);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        base='http://127.0.0.1:'+str(server.server_address[1])
+        response=urllib.request.urlopen(base+'/?id=earlier');assert response.geturl()==base+'/?id=actual'
+        history=urllib.request.urlopen(base+'/?id=earlier&history=1').read().decode()
+        assert '解析器输入历史，不是另一份待审申请' in history
+    finally:server.shutdown();server.server_close();thread.join()
