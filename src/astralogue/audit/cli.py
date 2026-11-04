@@ -57,6 +57,15 @@ def webui(db:Path=DB,port:int=8340):
     from .webui import serve
     serve(db,port)
 
+
+@app.command('discover')
+def discover_cmd(db:Path=DB,pack:Path=Path('data/packs/prologue-exploration-v112.storypack'),page:Path=Path('data/staging/bwiki/混乱行至深处.json')):
+    """从本地固定版本折叠结构生成待审核提案，不联网或调用模型。"""
+    from .findings import discover
+    with AuditStore(db) as s:
+        result=discover(s,pack,page)
+        typer.echo(json.dumps({k:v for k,v in result.items() if k not in {'path','audit_edges'}},ensure_ascii=False))
+
 @app.command('export-patch')
 def export_patch_cmd(proposal:str,output:Path,pack:Path=Path('data/packs/prologue-exploration-v112.storypack'),db:Path=DB):
     from .review import export_patch

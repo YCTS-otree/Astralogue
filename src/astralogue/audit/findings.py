@@ -9,6 +9,7 @@ from astralogue.player import ProfileEvent
 from astralogue.runtime import DialogueEvent,ChoiceEvent,EndEvent
 from astralogue.storypack import StoryPack
 from astralogue.model import canonical,digest
+from astralogue.adapters.wiki.bwiki import inline
 
 
 def discover(store,pack_path:Path,page_path:Path):
@@ -33,9 +34,10 @@ def discover(store,pack_path:Path,page_path:Path):
         scenes={s['id']:{'title':s['title'],'start':s['start'],'end':s['end']} for s in scene_data['sections']}
         for scene in scene_data['sections']:
             for item in scene['interactions']:
-                if item['kind']!='optional_dialogue':continue
+                if item['kind']!='optional_dialogue' and item.get('interaction_requirement')!='active_inspection':continue
                 matches=[]
-                for row in item['rows']:
+                rows=item['rows'] if item['kind']=='optional_dialogue' else [{'text':inline(item['raw'])['text']}]
+                for row in rows:
                     matches.extend(n for n in path if normalize(n['text'])==normalize(row['text']))
                 if not matches:continue
                 matches=list({n['node']:n for n in matches}.values())
@@ -45,16 +47,19 @@ def discover(store,pack_path:Path,page_path:Path):
                         'source':item['source'],'section':scene['id'],'label':item['label']},
                         'graph':{'pack_id':pack.metadata['pack_id'],'source_hashes':pack.metadata['narrative'].get('source_hashes',{}),'path':'actual recorded Reader traversal; optional inquiry menus skipped'}},
                     'nearby_path':path[max(0,path.index(matches[0])-3):path.index(matches[-1])+4]}
-                suggestion={'operation':'move_to_optional_interaction','instances':list(context['instances']),'targets':[],
+                investigation=item.get('interaction_requirement')=='active_inspection'
+                repeated=any(s['trigger']=='repeat_inspection' for s in item.get('segments',[]))
+                suggestion={'operation':'split_dialogue_sequence' if repeated else 'attach_to_exploration_phase' if investigation else 'move_to_optional_interaction','instances':list(context['instances']),'targets':[],
                     'evidence':['wiki','graph'],'before':{'default_path_nodes':[m['node'] for m in matches]},
-                    'after':{'candidate_phases':[scene['id']],'interaction':item['label'],'trigger_condition':'UNKNOWN','repeat_policy':'UNKNOWN'},
+                    'after':{'candidate_phases':[scene['id']],'interaction':item['label'],'trigger_condition':'UNKNOWN','repeat_policy':item['repeat_policy'] if investigation else 'UNKNOWN',
+                             **({'interaction_requirement':'active_inspection','required_for_mainline':'UNKNOWN','segments':item['segments']} if investigation else {})},
                     'conflicts':['Exact text may have multiple placements; phase attachment and all incoming/outgoing edges need review'] if len(matches)>len(item['rows']) else [],
                     'unknowns':['Exact world-state trigger and phase timing are not established by the extra-dialogue label'],
-                    'rationale':'BWIKI explicitly labels this fold extra dialogue, while exact text occurs on the current non-exploration Reader path.'}
+                    'rationale':'BWIKI 调查折叠证明主动调查结构；再次调查标记分隔重复访问内容。是否主线必经及具体开放时机仍待审核。' if investigation else 'BWIKI explicitly labels this fold extra dialogue, while exact text occurs on the current non-exploration Reader path.'}
                 pid=digest(['source-evidence-audit-v1',context,suggestion]);payload={'proposal_version':1,'context_hash':digest(context),'context':context,
                     'suggestion':suggestion,'status':'pending','origin':'DETERMINISTIC_SOURCE_CROSSCHECK','game_verified':False}
                 store.db.execute('INSERT OR IGNORE INTO proposals(id,job,payload) VALUES(?,?,?)',(pid,None,canonical(payload)))
-                findings.append({'proposal':pid,'label':item['label'],'default_path_nodes':[m['node'] for m in matches],'phase_candidates':[scene['id']]})
+                findings.append({'proposal':pid,'label':item['label'],'kind':'active_investigation' if investigation else item['kind'],'segments':item.get('segments',[]),'default_path_nodes':[m['node'] for m in matches],'phase_candidates':[scene['id']]})
         store.db.commit()
         result={'default_dialogue_instances':len(path),'optional_findings':findings,'suspect_instances':len({n for f in findings for n in f['default_path_nodes']}),
                 'independent_evidence':'Wiki explicit extra-fold label plus exact original graph text; trigger unknown',

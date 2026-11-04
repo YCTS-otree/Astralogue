@@ -122,6 +122,11 @@ def reviewable(payload):
 
 def body(payload):
     result=''
+    segments=payload['suggestion']['after'].get('segments',[])
+    if segments:
+        for segment in segments:
+            result+='<h4>'+('再次主动调查时' if segment['trigger']=='repeat_inspection' else '首次主动调查时')+'</h4>'+line('旁白',segment['text'],True)
+        return result+'<p class="notice">首次与再次调查应分开触发，不能顺序自动播出；具体条件仍待审核。</p>'
     for item in selected(payload):
         value=text(item.get('text'))
         if item.get('kind')=='wiki_source_instance':
@@ -146,4 +151,6 @@ def proposed_explanation(payload):
     phase=phases[0][1].get('title','指定阶段') if len(phases)==1 else '尚未确定的阶段'
     if op=='move_to_optional_interaction':return '在「'+phase+'」提供一个可选入口。选择后阅读下面这段内容，结束后返回菜单；直接推进主线时不自动播放。'
     if op=='mark_as_required':return '将下面这段标记为必经剧情，保留当前位置和正文，不额外增加选项。'
+    if op=='split_dialogue_sequence' and payload['suggestion']['after'].get('segments'):return '当前一条台词混合了首次与再次调查的内容。按来源标记拆开，保留为独立访问内容；不会自动应用到剧情包。'
+    if op=='attach_to_exploration_phase':return '把主动互动放入对应小节的探索入口；是否必经、何时可用仍待核实。'
     return '这项建议还没有形成可执行的具体分支计划，先作为研究结论记录。'
