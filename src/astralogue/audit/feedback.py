@@ -10,6 +10,8 @@ from astralogue.model import canonical,digest
 def enrich_context(store,context):
     from pathlib import Path
     from .presentation import bindings
+    from .source_binding import bind_sources
+    bind_sources(store,context)
     path=(store.setting('first_task_findings') or {}).get('path',[])
     selected={i.get('node') for i in context.get('instances',{}).values()}
     positions=[i for i,n in enumerate(path) if n['node'] in selected]
@@ -49,10 +51,12 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
         context['supersedes_job']=previous[0]
         with store.db:store.db.execute("UPDATE jobs SET status='cancelled',error='已收到更新的人工意见，停止旧轮次提交' WHERE id=? AND status IN ('pending','running')",(previous[0],))
     scope='human_feedback:'+digest([pid,comment.strip(),time.time_ns()])[:24]
-    review(store,pid,'defer',reviewer)
+    approved=store.db.execute('SELECT status FROM proposals WHERE id=?',(pid,)).fetchone()[0]=='approved'
+    if approved:context['revises_approved_proposal']=pid
+    else:review(store,pid,'defer',reviewer)
     job=store.job(2,scope,context)
     with store.db:
-        store.db.execute("UPDATE proposals SET status='awaiting_revision' WHERE id=?",(pid,))
+        if not approved:store.db.execute("UPDATE proposals SET status='awaiting_revision' WHERE id=?",(pid,))
         store.db.execute('INSERT INTO review_comments(proposal,reviewer,comment,action,job,at) VALUES(?,?,?,?,?,?)',(pid,reviewer,comment.strip(),action,job,time.time()))
     return job
 

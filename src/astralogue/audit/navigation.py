@@ -127,13 +127,14 @@ def request_source(store,source_id,action,reviewer,comment='',provider='local'):
     from astralogue.storypack import StoryPack
     path=store.setting('publication_pack')
     if not path:raise ValueError('未设置当前游玩包')
-    part=unit['part'];raw=part.get('raw',unit['text']);needles=[normalize(inline(raw)['text'])]+[normalize(r['text']) for r in part.get('rows',[])]
+    from .source_binding import source_key
+    part=unit['part'];raw=part.get('raw',unit['text']);needles=[source_key(inline(raw)['text'])]+[source_key(r['text']) for r in part.get('rows',[])]
     with StoryPack(Path(path)) as pack:
         bundle=pack.bundle();arc=next(iter(pack.metadata.get('story_arcs',{}).values()),{});tasks=arc.get('plan',{}).get('tasks',[])
         candidates=[(mid,i) for mid,entry in pack.metadata.get('story_arcs',{}).items() for i,t in enumerate(entry.get('plan',{}).get('tasks',[])) if t['title']==unit['task']]
         mid,index=candidates[0] if len(candidates)==1 else (None,None)
         nodes=[n for n in bundle.nodes if index is not None and n.mission==mid and n.data.get('task')==index and n.kind=='dialogue']
-        found=[n for n in nodes if any(value and normalize(v.text(bundle.texts.get(n.text,{})))==value for value in needles)]
+        found=[n for n in nodes if any(value and source_key(v.text(bundle.texts.get(n.text,{})))==value for value in needles)]
         def view(n):return {'node':n.id,'text':bundle.texts.get(n.text,{}),'speaker':bundle.texts.get(n.speaker,{}),'data':n.data}
         instances={str(i):view(n) for i,n in enumerate(found)} or {'SOURCE':{'id':unit['id'],'kind':'wiki_source_instance','text':raw,'label':part['label'],'source':part['source']}}
         ctx={'review_round':store.setting('review_round'),'task':{'title':unit['task']},'chapter':unit['chapter_label'],'chapter_id':unit['chapter'],'source_unit_id':unit['id'],'instances':instances,

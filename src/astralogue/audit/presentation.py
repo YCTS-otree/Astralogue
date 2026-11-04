@@ -120,7 +120,7 @@ def reviewable(payload):
     if payload['context'].get('review_intent')=='promote_research' and op in {'split_dialogue_sequence','attach_to_exploration_phase','classify_conditional'}:
         return len(phase_candidates(payload))==1 and bool(payload['suggestion']['after'])
     if op=='move_to_optional_interaction':
-        if payload['context'].get('review_intent')=='promote_research' and len(payload['suggestion']['after'].get('segments',[]))>=2:return len(phase_candidates(payload))==1
+        if len(payload['suggestion']['after'].get('segments',[]))>=2:return len(phase_candidates(payload))==1
         if any(re.search(r'(?:^|\n)\s*再次调查',text(i.get('text'))) for i in items):return False
         return len(phase_candidates(payload))==1
     return op=='mark_as_required'
@@ -130,8 +130,9 @@ def body(payload):
     result=''
     segments=payload['suggestion']['after'].get('segments',[])
     if segments:
-        for segment in segments:
-            result+='<h4>'+('再次主动调查时' if segment['trigger']=='repeat_inspection' else '首次主动调查时')+'</h4>'+line('旁白',segment['text'],True)
+        for index,segment in enumerate(segments):
+            label='首次主动调查时' if index==0 else '第 '+str(index+1)+' 次主动调查'+('及以后' if index==len(segments)-1 else '时')
+            result+='<h4>'+label+'</h4>'+line('旁白',segment['text'],True)
         return result+'<p class="notice">首次与再次调查应分开触发，不能顺序自动播出；具体条件仍待审核。</p>'
     for item in selected(payload):
         value=text(item.get('text'))

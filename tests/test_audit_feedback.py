@@ -34,7 +34,8 @@ def test_approved_rejected_buttons_and_expanded_context(tmp_path):
         assert 'position:sticky' in html
 
 
-def test_feedback_result_still_requires_new_human_review(tmp_path):
+@pytest.mark.parametrize("already_approved",[False,True])
+def test_feedback_result_still_requires_new_human_review(tmp_path,already_approved):
     from astralogue.audit.jobs import run
     from test_audit import FakeProvider,context
     path=tmp_path/'a.sqlite';seed(path)
@@ -42,6 +43,7 @@ def test_feedback_result_still_requires_new_human_review(tmp_path):
         p=json.loads(s.db.execute("SELECT payload FROM proposals WHERE id='earlier'").fetchone()[0])
         p['context']=context()
         s.db.execute("UPDATE proposals SET payload=? WHERE id='earlier'",(json.dumps(p),));s.db.commit()
+        if already_approved:review(s,'earlier','approve','human')
         job=submit_feedback(s,'earlier','request_changes','human','只修改真实节点，不新增文字。')
         scope=s.db.execute('SELECT scope FROM jobs WHERE id=?',(job,)).fetchone()[0]
         run(s,FakeProvider(),1,scope=scope)
@@ -50,7 +52,7 @@ def test_feedback_result_still_requires_new_human_review(tmp_path):
         run(s,FakeProvider(),1,scope=next_job['scope'])
         child=s.db.execute('SELECT status,payload FROM proposals WHERE job=?',(next_job['id'],)).fetchone()
         assert child['status']=='pending' and json.loads(child['payload'])['context']['parent_proposal']=='earlier'
-        assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='revision_submitted'
+        assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]==('approved' if already_approved else 'revision_submitted')
 
 def test_provider_selection_is_bound_to_feedback_job(tmp_path):
     path=tmp_path/'a.sqlite';seed(path)
@@ -143,3 +145,38 @@ def test_source_bound_additions_and_application_explanation():
     p['additions'][0].update(text='来源中的准确句子。',evidence=['human_direction'])
     ctx['evidence']['human_direction']={'raw':'来源中的准确句子。'}
     with pytest.raises(ValueError,match='评论'):validate_response(value,ctx)
+
+
+def test_approved_feedback_keeps_decision_and_publication(tmp_path):
+    path=tmp_path/'a.sqlite';seed(path)
+    with AuditStore(path) as s:
+        review(s,'earlier','approve','human')
+        s.db.execute("INSERT INTO publications VALUES(?,?,?,?)",('earlier','published','{}',1));s.db.commit()
+        job=submit_feedback(s,'earlier','request_changes','human','漏了一句，请根据来源补充后另建申请。')
+        assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='approved'
+        assert s.db.execute("SELECT status FROM publications WHERE proposal='earlier'").fetchone()[0]=='published'
+        ctx=json.loads(s.db.execute('SELECT context FROM jobs WHERE id=?',(job,)).fetchone()[0])
+        assert ctx['revises_approved_proposal']=='earlier'
+        s.db.execute("UPDATE publications SET result=? WHERE proposal='earlier'",(json.dumps({'status':'published','revision':1}),));s.db.commit()
+        html=detail_page(s,'earlier','token','human')
+        assert 'disabled>已批准' in html and '提交后续修改建议' in html and '排队中' in html
+
+
+def test_published_proposal_accepts_http_feedback_without_unpublishing(tmp_path):
+    import threading,urllib.request,urllib.parse
+    from astralogue.audit.webui import make_server
+    path=tmp_path/'a.sqlite';seed(path)
+    with AuditStore(path) as store:
+        review(store,'earlier','approve','human')
+        store.db.execute('INSERT INTO publications VALUES(?,?,?,?)',('earlier','published',json.dumps({'status':'published','revision':1}),1));store.db.commit()
+    server=make_server(path,0);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with AuditStore(path) as store:token=store.setting('webui_csrf')
+        data={'id':'earlier','csrf':token,'action':'request_changes','reviewer':'human','provider':'local','comment':'请对照原文补充漏句，重新提交申请。'}
+        request=urllib.request.Request('http://127.0.0.1:'+str(server.server_address[1]),data=urllib.parse.urlencode(data).encode(),headers={'Accept':'application/json'})
+        with urllib.request.urlopen(request) as response:assert '提交成功' in json.load(response)['message']
+        with AuditStore(path) as store:
+            assert store.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='approved'
+            assert store.db.execute("SELECT status FROM publications WHERE proposal='earlier'").fetchone()[0]=='published'
+            assert store.db.execute("SELECT COUNT(*) FROM review_comments WHERE proposal='earlier' AND job IS NOT NULL").fetchone()[0]==1
+    finally:server.shutdown();server.server_close();thread.join()

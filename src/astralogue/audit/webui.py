@@ -105,7 +105,7 @@ def make_server(path, port=8340):
                         if input_task(current) and input_results(store,selected_id) and action not in {'undo_research','undo_reject'}:raise ValueError('这是解析输入历史，请在实际审核申请中操作，勿重复审批')
                         if current['row']['status']=='withdrawn':raise ValueError('此申请已随研究撤回，请从原研究重新申请')
                         published=store.db.execute('SELECT status FROM publications WHERE proposal=?',(selected_id,)).fetchone()
-                        if action in {'reject','edit','defer','request_changes'} and published and published[0] in {'published','already_published'}:raise ValueError('此提案已发布，请先回滚对应修订，再修改审核结论。')
+                        if action in {'reject','edit','defer'} and published and published[0] in {'published','already_published'}:raise ValueError('此提案已发布，请先回滚对应修订，再修改审核结论。')
                         if action=='approve' and not current['ready']:raise ValueError('所选项包含尚无具体修改位置的提案；本批次未保存。')
                     if action in {'undo_reject','undo_research'}:
                         from .undo import undo

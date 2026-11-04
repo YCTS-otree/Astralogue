@@ -59,3 +59,29 @@ def test_recovery_reuses_paid_result_without_calling_api(tmp_path):
         assert s.setting('deepseek_committed_upper_cny')==1
         extra=json.loads(s.db.execute("SELECT context FROM jobs WHERE scope LIKE 'human_feedback:related:%'").fetchone()[0])
         assert 'recovery_response' not in extra and extra['related_review_pass']
+
+
+def test_structural_diff_known_label_resolves_to_bound_node():
+    ctx=context();ctx['instances']['a']['label']='调查楼梯'
+    value=response();value['proposals'][0]['before']={'default_path_nodes':['调查楼梯']}
+    result=validate_response(value,ctx)
+    assert result['proposals'][0]['before']['default_path_nodes']==['a']
+    value['proposals'][0]['before']['default_path_nodes']=['不存在的楼梯']
+    with pytest.raises(ValueError):validate_response(value,ctx)
+
+
+def test_source_binding_ignores_formatting_whitespace_but_preserves_ambiguity(tmp_path):
+    from astralogue.audit.source_binding import bind_sources
+    from astralogue.audit.store import AuditStore
+    from astralogue.compiler import compile_story
+    from test_audit_cleanup import fixture
+    b,_=fixture();b.metadata['story_arcs']['reader']={'plan':{'tasks':[{'title':'任务'}]}}
+    b.texts['o1']['CHS']='光栅拦住去路。\n\n再次调查你不能通过！'
+    path=tmp_path/'p.storypack';compile_story(b,path)
+    def ctx():return {'task':{'title':'任务'},'instances':{'SOURCE':{'id':'source','kind':'wiki_source_instance','label':'调查楼梯','text':'光栅拦住去路。<br>\n{{颜色|描述|再次调查}}<br>你不能通过！'}}}
+    with AuditStore(tmp_path/'a.sqlite') as store:
+        store.setting('publication_pack',str(path));context=ctx();bind_sources(store,context)
+        assert context['instances']['SOURCE']['node']=='o1'
+        assert context['instances']['SOURCE']['source_raw_text'].startswith('光栅')
+        b.texts['o2']['CHS']=b.texts['o1']['CHS'];compile_story(b,path,force=True)
+        ambiguous=ctx();bind_sources(store,ambiguous);assert not ambiguous['instances']['SOURCE'].get('node')

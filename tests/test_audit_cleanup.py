@@ -67,3 +67,31 @@ def test_reuses_existing_phase_without_duplicate_optional_playback(tmp_path):
         rt=ArcSession(pack,mid);assert rt.next().text=='a';assert rt.next().node=='menu'
         rt.choose('optional');assert rt.next().text=='o1';assert rt.next().text=='o2'
         assert [o.value for o in rt.next().options]==['main'];rt.choose('main');assert rt.next().text=='b'
+
+
+@pytest.mark.parametrize('stages',[2,3,4])
+def test_repeat_inspection_stages_persist_and_last_repeats(tmp_path,stages):
+    b,p=fixture();texts=['调查阶段'+str(i)+'。' for i in range(stages)]
+    b.texts['o1']['CHS']='\n再次调查\n'.join(texts);b.texts['o2']['CHS']=''
+    p['operations'][0]['before_hashes']={n.id:digest(n.__dict__) for n in b.nodes if n.id in {'o1','o2'}}
+    p['operations'][0]['suggestion']['after']['segments']=[{'text':t,'trigger':'visit_'+str(i)} for i,t in enumerate(texts)]
+    from astralogue.audit.publication import publish
+    path=tmp_path/'p.storypack';compile_story(b,path);publish(path,'proposal',p)
+    with StoryPack(path) as pack:
+        rt=ArcSession(pack,'reader');assert rt.next().text=='a';assert isinstance(rt.next(),ChoiceEvent)
+        for visit in range(stages+3):
+            rt.choose('test-review');assert rt.next().text==texts[min(visit,stages-1)]
+            menu=rt.next();assert 'test-review' in [o.value for o in menu.options]
+            rt.save(tmp_path/'save.json');rt=ArcSession.load(pack,tmp_path/'save.json')
+        rt.choose('main');assert rt.next().text=='b';assert isinstance(rt.next(),EndEvent)
+    # Plain mainline never enters either inspection stage.
+    with StoryPack(path) as pack:
+        rt=ArcSession(pack,'reader');rt.next();rt.next();rt.choose('main');assert rt.next().text=='b'
+
+
+def test_repeat_inspection_rejects_invented_or_omitted_text():
+    b,p=fixture();b.texts['o1']['CHS']='首次。\n再次调查\n再次。';b.texts['o2']['CHS']='不能丢失。'
+    after=p['operations'][0]['suggestion']['after'];after['segments']=[{'text':'首次。'},{'text':'再次。'}]
+    with pytest.raises(ValueError,match='未覆盖'):compile_cleanup(b,[p])
+    after['segments'][1]['text']='编造。'
+    with pytest.raises(ValueError,match='原文'):compile_cleanup(b,[p])

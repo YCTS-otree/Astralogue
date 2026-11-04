@@ -32,7 +32,22 @@ def compile_cleanup(bundle,patches):
                 report['applied'].append({'patch':patch['id'],'nodes':ids,'annotation_only':True});continue
             if suggestion['operation']!='move_to_optional_interaction' or not phase:
                 report['deferred'].append({'patch':patch['id'],'reason':'Operation requires explicit reconstruction plan or unique reviewed phase'});continue
-            if any(re.search(r'(?:^|\n)\s*再次调查',b.texts.get(nodes[n].text,{}).get('CHS','')) for n in ids):raise ValueError('首次与再次调查仍混在同一节点，必须先拆分触发，拒绝整体发布')
+            segments=after.get('segments',[])
+            if any(re.search(r'(?:^|\n)\s*再次调查',b.texts.get(nodes[n].text,{}).get('CHS','')) for n in ids) and not segments:raise ValueError('首次与再次调查仍混在同一节点，必须先拆分触发，拒绝整体发布')
+            if segments:
+                if not isinstance(segments,list) or len(segments)<2:raise ValueError('多次调查必须明确提供至少两个触发阶段')
+                raw=''.join(b.texts.get(nodes[n].text,{}).get('CHS','') for n in ids)
+                normalize=lambda text:re.sub(r'\s+','',text)
+                cursor=0
+                for segment in segments:
+                    text=segment.get('text')
+                    if not isinstance(text,str) or not text.strip():raise ValueError('调查阶段缺少原文')
+                    found=normalize(raw).find(normalize(text),cursor)
+                    if found<0:raise ValueError('调查阶段文本未按顺序对应原节点原文，需重新审核')
+                    cursor=found+len(normalize(text))
+                remainder=normalize(raw)
+                for segment in segments:remainder=remainder.replace(normalize(segment['text']),'',1)
+                if re.sub(r'(?:再次调查|第[一二三四五六七八九十0-9]+次调查|[：:])','',remainder):raise ValueError('调查拆分仍有未覆盖原文，不能静默丢失')
             if set(ids)&touched:raise ValueError('Conflicting approved proposals overlap')
             if any(nodes[n].kind!='dialogue' for n in ids):raise ValueError('Only proven linear dialogue bodies can be moved automatically')
             outgoing={nid:[e for e in b.edges if e.source==nid] for nid in ids}
@@ -47,11 +62,30 @@ def compile_cleanup(bundle,patches):
             protected=[e for e in b.edges if e.source in selected or e.target==start]
             if any(info.get('relations',{}).get(e.id,{}).get('verified') or info.get('relations',{}).get(e.id,{}).get('evidence',{}).get('class','').startswith('GAME_VERIFIED') for e in protected):raise ValueError('Verified game control relation cannot be overwritten')
             touched.update(ids);groups.setdefault((nodes[start].mission,phase),[]).append({'patch':patch,'start':start,'tail':chain[-1],'exit':at,
-                'incoming':incoming[start],'label':after.get('interaction','额外互动'),'nodes':chain,'task':nodes[start].data.get('task')})
+                'incoming':incoming[start],'label':after.get('interaction','额外互动'),'nodes':chain,'segments':segments,'task':nodes[start].data.get('task')})
     def edge(a,z,proof,value=None,label=None,condition=None):
         eid='audit-edge:'+digest([a,z,value])[:28]
         b.edges.append(Edge(eid,a,z,'option' if value else 'next',b.text(eid+':label',label) if label else None,condition,value))
         info.setdefault('relations',{})[eid]={'origin':'community','verified':False,'policy':'human-reviewed-phase-reader-v1','evidence':proof}
+    def repeated(body,menu,proof):
+        """Lower reviewed visit stages into ordinary branch/set IR, final stage repeats."""
+        prefix=body['patch']['id']+':visits';counter=prefix+':count';dispatch=prefix+':dispatch';mark=prefix+':mark'
+        mid=nodes[body['start']].mission
+        b.metadata.setdefault('mission_initial_variables',{}).setdefault(mid,{})[counter]=0
+        b.nodes.extend([Node(dispatch,mid,'branch',data={'reader_policy':'reviewed-inspection-stages-v1'}),
+                        Node(mark,mid,'set',data={'var':counter,'op':'add','value':1})])
+        for index,segment in enumerate(body['segments']):
+            nid=prefix+':stage:'+str(index)
+            b.nodes.append(Node(nid,mid,'dialogue',b.text(nid+':text',segment['text']),nodes[body['start']].speaker,
+                {'task':body['task'],'inspection_stage':index,'original_nodes':body['nodes'],
+                 'source_patch':body['patch']['id'],'source_segment':deepcopy(segment),'game_verified':False}))
+            condition={'ge' if index==len(body['segments'])-1 else 'eq':[{'var':counter},index]}
+            edge(dispatch,nid,proof,condition=condition);b.edges[-1].kind='condition'
+            edge(nid,mark,proof)
+        edge(mark,menu,proof)
+        # Preserve the original source nodes for provenance and existing saves.
+        edge(body['tail'],menu,proof)
+        return dispatch
     for (mid,phase),bodies in groups.items():
         existing=[n for n in b.nodes if n.mission==mid and n.kind=='choice' and n.data.get('reader_action')=='free_exploration' and n.data.get('scene_id')==phase]
         if len(existing)>1:raise ValueError('Multiple existing phase menus require an explicit reviewed merge')
@@ -76,7 +110,13 @@ def compile_cleanup(bundle,patches):
                         duplicates=[e for e in b.edges if e.source==menu and e.value!='main'];break
                 if len(duplicates)>1:raise ValueError('Ambiguous existing optional interaction')
                 tail_edge=next(e for e in b.edges if e.source==body['tail']);b.edges.remove(tail_edge);info['relations'].pop(tail_edge.id,None)
-                if duplicates:
+                if body['segments']:
+                    target=repeated(body,menu,proof)
+                    if duplicates:
+                        option=duplicates[0];option.target=target;option.condition=None
+                        info['relations'][option.id]={'origin':'community','verified':False,'evidence':proof}
+                    else:edge(menu,target,proof,body['patch']['id'],body['label'])
+                elif duplicates:
                     option=duplicates[0];at=option.target;visited=set()
                     while nodes.get(at) and nodes[at].kind=='dialogue' and at not in visited:
                         visited.add(at);out=[e for e in b.edges if e.source==at]
@@ -109,7 +149,7 @@ def compile_cleanup(bundle,patches):
         if len(anchors)!=1:raise ValueError('No unique graph-supported phase anchor; human phase plan required')
         anchor=anchors[0];menu='audit-phase:'+digest([mid,phase])[:24];init=menu+':enter';context=menu+':context';leave=menu+':leave'
         proof={'class':'COMMUNITY_REVIEWED','phase':phase,'patches':[x['patch']['id'] for x in bodies],
-               'game_trigger':'UNKNOWN','reader_policy':'explicitly selected optional reading, once per account progress'}
+               'game_trigger':'UNKNOWN','reader_policy':'explicitly selected optional reading with reviewed visit policy'}
         b.nodes.extend([Node(init,mid,'set',data={'var':'current_scene_id','value':phase}),
             Node(context,mid,'set',data={'var':'current_exploration_node','value':menu}),
             Node(menu,mid,'choice',data={'reader_action':'free_exploration','scene_id':phase,'scene_title':'自由活动','task':anchor['task'],'recorded_value':'main','continuation_value':'main','reader_message':'经人工审核的场景阅读策略；游戏触发契约仍未完整恢复。'}),
@@ -130,6 +170,10 @@ def compile_cleanup(bundle,patches):
                     'evidence':{**proof,'prior_edge':old,'prior_relation':info['relations'].get(incoming_edge.id)}}
             tail_edge=next(e for e in b.edges if e.source==body['tail']);b.edges.remove(tail_edge)
             info['relations'].pop(tail_edge.id,None)
+            if body['segments']:
+                edge(menu,repeated(body,menu,proof),proof,body['patch']['id'],body['label'])
+                report['applied'].append({'patch':body['patch']['id'],'nodes':body['nodes'],'menu':menu,'game_verified':False,'inspection_stages':len(body['segments'])})
+                continue
             flag=body['patch']['id']+':read';mark=flag+':mark'
             b.metadata.setdefault('mission_initial_variables',{}).setdefault(mid,{})[flag]=False
             b.nodes.append(Node(mark,mid,'set',data={'var':flag,'value':True}))
