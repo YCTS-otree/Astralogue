@@ -96,9 +96,8 @@ def filter_form(query,units,rows):
     body='<form method="get" class="card"><h2>按章 / 节 / 小节定位</h2><div class="actions">'
     body+=select('chapter','章',chapters.items())+select('mission','节 / 任务',[(m,m) for m in missions])+select('section','小节',[(s,s) for s in sections])
     body+='</div><p><label>关键词 <input name="q" value="'+v.esc(query.get('q',[''])[0])+'" placeholder="星核 容器 银狼"></label> <select name="match"><option value="all">包含全部关键词</option><option value="any"'+(' selected' if query.get('match',[''])[0]=='any' else '')+'>包含任一关键词</option></select></p>'
-    body+='<label>查看 <select name="view"><option value="">审核申请</option><option value="source"'+(' selected' if query.get('view',[''])[0]=='source' else '')+'>原文范围 / 主动发起审查</option></select></label> '
-    body+=select('status','审核状态',[(k,v.STATUS.get(k,k)) for k in ['pending','awaiting_revision','revision_failed','revision_no_change','revision_submitted','approved','rejected']])
-    body+='<input type="hidden" name="tab" value="'+v.esc(query.get('tab',['all'])[0])+'"><button>筛选 / 搜索</button><a href="/">清除</a><p class="subtle">多个关键词默认全部匹配，按中文子串搜索。原文范围也包括尚未提交申请的内容，审核状态只筛选申请。</p></form>'
+    body+='<input type="hidden" name="view" value="'+v.esc(query.get('view',[''])[0])+'"><input type="hidden" name="status" value="'+v.esc(query.get('status',['pending'])[0])+'">'
+    body+='<input type="hidden" name="tab" value="'+v.esc(query.get('tab',['all'])[0])+'"><button>筛选 / 搜索</button><a href="/">清除</a><p class="subtle">多个关键词默认全部匹配，按中文子串搜索。原文范围也包括尚未提交申请的内容，审核类型和状态通过下方快捷入口选择。</p></form>'
     return body
 
 
@@ -106,14 +105,14 @@ def source_page(store,query,units,rows):
     selected=filter_sources(units,query)
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
-    body='<h1>原文定位与主动审查</h1>'+filter_form(query,units,rows)+'<p>匹配 '+str(len(selected))+' 个来源块（小节与内部互动可能重叠，不是台词覆盖率）。</p>'
+    body='<a href="'+v.esc(url(query,view='',offset=0))+'">← 返回审核申请</a><h1>原文定位与主动审查</h1>'+filter_form(query,units,rows)+'<p>匹配 '+str(len(selected))+' 个来源块（小节与内部互动可能重叠，不是台词覆盖率）。</p>'
     for unit in selected[offset:offset+10]:
         part=unit['part'];body+='<section class="card"><div class="crumb">'+v.esc(unit['chapter_label']+' › '+unit['task']+' › '+unit['section'])+'</div><h2>'+v.esc(part['label'])+'</h2>'+v.wiki_fragment(unit['text'])
         linked=[]
         for row in rows:
             ctx=row['payload']['context'];proof=ctx.get('evidence',{}).get('wiki',{});source=proof.get('source',{})
             if ctx.get('source_unit_id')==unit['id'] or proof.get('sha256')==unit['sha256'] and (source.get('start')==part['source'].get('start') or part['kind']=='section' and unit['start']<=source.get('start',-1)<unit['end']):linked.append(row)
-        body+='<h3>已有申请</h3>'+(''.join('<p><a href="/?id='+r['row']['id']+'">'+v.esc(r['location']['label'])+'</a> · '+v.esc(v.STATUS.get(r['row']['status'],r['row']['status']))+'</p>' for r in linked) or '<p>该来源块暂无已关联申请，可以主动发起检查。</p>')
+        body+='<h3>已有申请</h3>'+(''.join('<p><a href="'+v.esc(url(query,id=r['row']['id']))+'">'+v.esc(r['location']['label'])+'</a> · '+v.esc(v.STATUS.get(r['row']['status'],r['row']['status']))+'</p>' for r in linked) or '<p>该来源块暂无已关联申请，可以主动发起检查。</p>')
         body+='<form method="post"><input type="hidden" name="csrf" value="'+v.esc(store.setting('webui_csrf') or '')+'"><input type="hidden" name="source_id" value="'+unit['id']+'"><label>审核人 <input name="reviewer" required value="'+v.esc(store.setting('webui_reviewer') or '')+'"></label><p><label>问题 / 修改方向<textarea name="comment" maxlength="12000" placeholder="例如：此处应主动调查，首次与再次调查需要分开触发。"></textarea></label></p><select name="provider"><option value="local">本地离线模型</option><option value="deepseek">DeepSeek 低推理（累计预算5元）</option></select><div class="actions"><button name="action" value="source_parse">重新结构解析（不调用模型）</button><button name="action" value="source_model">向模型发起修改请求（需评论）</button></div></form></section>'
     body+='<nav class="nav"><a href="'+v.esc(url(query,offset=max(0,offset-10)))+'">上一页</a><a href="'+v.esc(url(query,offset=offset+10))+'">下一页</a></nav>'
     return body

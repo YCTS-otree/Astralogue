@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "astralogue"
-version = "1.23.3"
+version = "1.23.4"
 description = "Offline, extensible interactive narrative engine"
 readme = "README.md"
 requires-python = ">=3.11"

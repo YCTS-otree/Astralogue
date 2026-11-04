@@ -177,3 +177,25 @@ def test_input_url_resolves_to_real_application_with_history_escape(tmp_path):
         history=urllib.request.urlopen(base+'/?id=earlier&history=1').read().decode()
         assert '解析器输入历史，不是另一份待审申请' in history
     finally:server.shutdown();server.server_close();thread.join()
+
+def test_detail_navigation_stays_in_current_scope_after_approval(tmp_path):
+    import re,html
+    from urllib.parse import parse_qs,urlparse
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        query={'tab':['changes'],'status':['pending'],'chapter':['100001'],'mission':['混乱行至深处'],'q':['画像']}
+        # Both concrete fixtures share this label. The research fixture must
+        # never appear among previous/next links, even after current approval.
+        listing=list_page(s,query)
+        assert 'select name="status"' not in listing and 'select name="view"' not in listing
+        links=re.findall(r'href="([^"]+)"',listing)
+        concrete=next(html.unescape(link) for link in links if 'id=earlier' in link)
+        assert parse_qs(urlparse(concrete).query)['tab']==['changes']
+        s.db.execute("UPDATE proposals SET status='approved' WHERE id='earlier'");s.db.commit()
+        detail=detail_page(s,'earlier','token','human',filter_query=query)
+        nav=detail.rsplit('<nav class="nav">',1)[1]
+        assert 'id=later' in nav and 'id=research' not in nav
+        target=html.unescape(re.search(r'href="([^"]+)"',nav)[1]);params=parse_qs(urlparse(target).query)
+        for key,value in query.items():assert params[key]==value
+        scoped=detail_page(s,'earlier','token','human',filter_query={**query,'section':['进入空间站']})
+        assert '下一片段' not in scoped.rsplit('<nav class="nav">',1)[1]

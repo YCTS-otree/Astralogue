@@ -7,6 +7,7 @@ from .store import AuditStore
 from .review import review
 from .pages import page, list_page, detail_page, ordered, input_task, input_results
 from .presentation import esc
+from .navigation import url
 
 
 def make_server(path, port=8340):
@@ -50,8 +51,8 @@ def make_server(path, port=8340):
                     item=next((r for r in ordered(store) if r['row']['id']==pid),None)
                     results=input_results(store,pid) if item and input_task(item) else []
                     if len(results)==1:
-                        self.send_response(303);self.send_header('Location','/?id='+urllib.parse.quote(results[0],safe=''));self.end_headers();return
-                body = detail_page(store, pid, token, store.setting('webui_reviewer') or '', min(100,max(3,int(query.get('context',['3'])[0]))) if query.get('context',['3'])[0].isdigit() else 3) if pid else list_page(store, query)
+                        self.send_response(303);self.send_header('Location',url(query,id=results[0]));self.end_headers();return
+                body = detail_page(store, pid, token, store.setting('webui_reviewer') or '', min(100,max(3,int(query.get('context',['3'])[0]))) if query.get('context',['3'])[0].isdigit() else 3,filter_query=query) if pid else list_page(store, query)
             self.send(200 if body else 404, body or page('<h1>未找到这份提案</h1>'))
 
         def do_POST(self):
@@ -127,7 +128,7 @@ def make_server(path, port=8340):
                     self.send(200,json.dumps({'message':f'提交成功：已{label} {len(ids)} 项，审核记录已保存。'+extra,'count':len(ids),'publication_failed':bool(failed)},ensure_ascii=False),'application/json; charset=utf-8')
                     return
                 self.send_response(303)
-                self.send_header('Location', ('/' if 'ids' in data else '/?id=' + urllib.parse.quote(pid, safe='')))
+                self.send_header('Location',url(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query),**({} if 'ids' in data else {'id':pid})))
                 self.end_headers()
             except (ValueError, KeyError) as error:
                 if 'application/json' in self.headers.get('Accept',''):

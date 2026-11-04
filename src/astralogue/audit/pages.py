@@ -75,6 +75,14 @@ def input_results(store,pid):
     return [r[0] for r in store.db.execute("SELECT id FROM proposals WHERE (job=? OR id IN (SELECT proposal FROM proposal_links WHERE job=?)) AND deleted_at IS NULL AND status NOT IN ('withdrawn','superseded','invalid_revision')",(latest[0],latest[0]))]
 
 
+def filtered_applications(rows,query):
+    from .navigation import filter_proposals
+    rows=filter_proposals([r for r in rows if r['row'].get('deleted_at') is None],query)
+    tab=query.get('tab',['all'])[0];status=query.get('status',['pending'])[0]
+    pool=rows if status in {'awaiting_revision','revision_failed'} else [r for r in rows if not input_task(r)]
+    return [r for r in pool if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
+
+
 def list_page(store,query):
     from .navigation import catalog,filter_form,filter_proposals,source_page,url
     rows=ordered(store);units=catalog()
@@ -90,8 +98,7 @@ def list_page(store,query):
     for count,label,card_status,card_tab in cards:content+='<div><a href="'+v.esc(url(query,tab=card_tab,status=card_status,offset=0))+'"><strong>'+str(count)+'</strong>'+label+'</a></div>'
     content+='<p class="subtle">以上是当前章节/关键词范围的状态总览；已完成的自动输入任务不计作研究申请。</p>'
     content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab=all&status=revision_failed">修改失败</a><a href="/?tab=all&status=revision_submitted">已提交返修</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    pool=rows if status in {'awaiting_revision','revision_failed','revision_no_change'} else applications
-    visible=[r for r in pool if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
+    visible=filtered_applications(all_rows,query)
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
     token=store.setting('webui_csrf') or ''
@@ -116,20 +123,24 @@ def list_page(store,query):
     import re
     def preserve(match):
         from urllib.parse import parse_qs,urlparse
-        target=match.group(1)
-        if target.startswith('/?tab='):
+        import html
+        target=html.unescape(match.group(1))
+        if target.startswith('/?tab=') or target.startswith('/?id='):
             values={k:vals[0] for k,vals in parse_qs(urlparse(target).query).items()}
-            return 'href="'+v.esc(url(query,**values))+'"'
+            return 'href="'+v.esc(url({**query,'tab':[tab],'status':[status]},**values))+'"'
         return match.group(0)
     content=re.sub(r'href="([^"]+)"',preserve,content)
     return page(content+'<details><summary>审计进度与技术统计</summary><pre>'+v.esc(json.dumps(store.report(),ensure_ascii=False,indent=2))+'</pre></details>')
 
-def detail_page(store,pid,token,reviewer,context_count=3):
+def detail_page(store,pid,token,reviewer,context_count=3,filter_query=None):
     rows=ordered(store,include_deleted=True);item=next((r for r in rows if r['row']['id']==pid),None)
     if not item:return None
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
+    from .navigation import url
+    filter_query=filter_query or {}
+    if not any(key in filter_query for key in ['tab','status','chapter','mission','section','q','match','view']):filter_query={'tab':['changes' if ready else 'research'],'status':['all']}
     before,after,contiguous=v.windows(p,baseline(store),context_count)
-    content='<a href="/?tab='+('changes' if ready else 'research')+'">← 返回剧情列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
+    content='<a href="'+v.esc(url(filter_query))+'">← 返回当前筛选列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
     if p.get('review_warnings'):
         content+='<section class="notice"><strong>请人工核对（未将此申请提前判为失败）</strong>'+''.join('<p>'+v.esc(warning)+'</p>' for warning in p['review_warnings'])+'</section>'
     if input_task(item):
@@ -139,7 +150,7 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     elif ctx.get('initial_case_review') and ctx.get('parent_proposal'):
         content+='<p class="source-note">这是模型提交的实际审核申请；<a href="/?id='+v.esc(ctx['parent_proposal'])+'&history=1">原始解析输入（历史，无需重复审核）</a></p>'
     if not ready:content+='<p class="notice">这项是研究结论或尚未定位的片段，还不能直接改变播放。请先补充具体台词与位置，不需要审批笼统描述。</p>'
-    content+='<nav class="nav"><a href="/?id='+pid+'&context='+str(min(100,context_count+5))+'">向前／向后各多加载 5 条剧情</a><span>当前前后各 '+str(context_count)+' 条，最多 100 条；沿当前已记录路径展示</span></nav>'
+    content+='<nav class="nav"><a href="'+v.esc(url(filter_query,id=pid,context=min(100,context_count+5)))+'">向前／向后各多加载 5 条剧情</a><span>当前前后各 '+str(context_count)+' 条，最多 100 条；沿当前已记录路径展示</span></nav>'
     content+='<div class="review-grid"><section><div class="label">上几条剧情</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in before) or '<p class="subtle">上文尚未定位，或已到任务开头。</p>')
     content+='<div class="point"><strong>'+('这里改为一个可选分支' if op=='move_to_optional_interaction' else v.OPS.get(op,'待补全的修改位置'))+'</strong><p>'+v.esc(v.proposed_explanation(p))+'</p>'
     phases=v.phase_candidates(p)
@@ -229,7 +240,9 @@ def detail_page(store,pid,token,reviewer,context_count=3):
             for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
         content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'
-    peers=[r for r in rows if (not input_task(r) or input_task(item)) and r['ready']==ready and (row.get('deleted_at') or r['row'].get('deleted_at') is None)];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
-    if index:content+='<a href="/?id='+peers[index-1]['row']['id']+'">← 上一片段</a>'
-    if index+1<len(peers):content+='<a href="/?id='+peers[index+1]['row']['id']+'">下一片段 →</a>'
+    peers=filtered_applications(rows,filter_query);rank={r['row']['id']:i for i,r in enumerate(rows)};at=rank[pid]
+    previous=[r for r in peers if rank[r['row']['id']]<at];following=[r for r in peers if rank[r['row']['id']]>at]
+    content+='<nav class="nav">'
+    if previous:content+='<a href="'+v.esc(url(filter_query,id=previous[-1]['row']['id']))+'">← 上一片段（当前筛选）</a>'
+    if following:content+='<a href="'+v.esc(url(filter_query,id=following[0]['row']['id']))+'">下一片段（当前筛选） →</a>'
     return page(content+'</nav>')
