@@ -35,7 +35,7 @@ RESPONSE_SCHEMA={'$schema':'https://json-schema.org/draft/2020-12/schema','type'
  'required':['operation','instances','targets','evidence','before','after','conflicts','unknowns','rationale'],
  'properties':{'operation':{'enum':OPERATIONS},'instances':{'type':'array','minItems':1,'items':{'type':'string'}},'targets':{'type':'array','items':{'type':'string'}},
  'evidence':{'type':'array','minItems':1,'items':{'type':'string'}},'before':{'type':'object'},'after':{'type':'object'},
- 'conflicts':{'type':'array','items':{'type':'string'}},'unknowns':{'type':'array','items':{'type':'string'}},'rationale':{'type':'string'}}}}}}
+ 'conflicts':{'type':'array','items':{'type':'string'}},'unknowns':{'type':'array','items':{'type':'string'}},'rationale':{'type':'string'},'explanation':{'type':'string'},'additions':{'type':'array','maxItems':20,'items':{'type':'object','additionalProperties':False,'required':['speaker','text','evidence'],'properties':{'speaker':{'type':'string'},'text':{'type':'string'},'evidence':{'type':'array','minItems':1,'items':{'type':'string'}}}}}}}}}}
 
 
 def validate_schema(value,schema):
@@ -85,6 +85,21 @@ def validate_response(raw,context):
         if row['uncertainty'].strip() in {'','说明证据不足之处'}:raise ValueError('Template echo or missing substantive uncertainty assessment')
     if seen!=instances:raise ValueError('Response did not classify every instance')
     for row in value['proposals']:
+        for addition in row.get('additions',[]):
+            from astralogue.adapters.wiki import normalize
+            def raw_texts(obj):
+                if isinstance(obj,dict):
+                    for key,child in obj.items():
+                        if key in {'raw','text','wikitext','content'} and isinstance(child,str):yield child
+                        else:yield from raw_texts(child)
+                elif isinstance(obj,list):
+                    for child in obj:yield from raw_texts(child)
+            cited=addition['evidence']
+            if any(alias not in context['evidence'] or alias in {'human_direction','prior_human_comments','reviewer_split_direction'} for alias in cited):raise ValueError('补句必须引用真实来源，不能把评论作为原文')
+            sources=[text for alias in cited for text in raw_texts(context['evidence'][alias])]
+            if 'wiki' in cited and context.get('wiki_wikitext'):sources.append(context['wiki_wikitext'])
+            needle=normalize(addition['text'])
+            if not needle or not any(needle in normalize(source) for source in sources):raise ValueError('补句未在所引来源中找到，拒绝编造原文')
         if set(row['instances'])-all_instances or set(row['targets'])-(all_instances|scenes) or set(row['evidence'])-evidence:raise ValueError('Proposal contains unknown reference')
         node_ids=all_instances|{v.get('node',v.get('id','')) for v in [*context['instances'].values(),*references.values()]}
         phase_ids=scenes|{v.get('id','') for v in context.get('scenes',{}).values()}
@@ -146,7 +161,7 @@ def messages(context,pass_):
         'classification_schema':constrained_schema(context)['properties']['classifications'],
         'proposal_schema':RESPONSE_SCHEMA['properties']['proposals'],
         'rules_zh':'仅输出一个JSON对象。instance必须逐一使用output_template中的实例别名，不能填台词或人物名。evidence和counterevidence都只能填写allowed_evidence_aliases中的完整别名，反证说明放uncertainty，不要把说明句子放counterevidence。不得发明触发条件。不确定时保留UNKNOWN。不要重复实例。允许类别：'+','.join(CATEGORIES),
-        'proposal_fields':'operation,instances,targets,evidence,before,after,conflicts,unknowns,rationale；无确定建议则proposals为空数组。操作只能使用：'+','.join(OPERATIONS)}
+        'proposal_fields':'operation,instances,targets,evidence,before,after,conflicts,unknowns,rationale；可选 explanation 用中文写给人工审核者的申请说明，解释修改范围、来源、缺口及选项文字；说明不是剧情台词；可选 additions 只能引用来源原文，包含 speaker,text,evidence，禁止凭空编写，新增节点尚未接入发布器；无确定建议则proposals为空数组。操作只能使用：'+','.join(OPERATIONS)}
     return [{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps(instruction,ensure_ascii=False)}]
 
 

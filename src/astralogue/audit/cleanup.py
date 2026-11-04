@@ -24,6 +24,7 @@ def compile_cleanup(bundle,patches):
         for op in patch['operations']:
             if op['op']!='narrative_audit':raise ValueError('Expected human narrative audit patch')
             suggestion=op['suggestion'];ids=op['nodes'];after=suggestion['after']
+            if suggestion.get('additions'):raise ValueError('该提案包含新增句子，插入位置及节点编译尚未支持，不能静默发布')
             phases=after.get('candidate_phases',[])
             phase=after.get('phase_id') or (phases[0] if len(phases)==1 else None)
             if suggestion['operation']=='mark_as_required':

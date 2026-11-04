@@ -123,3 +123,16 @@ def test_object_partition_keeps_shared_replies_together():
     value['proposals'].append(second);assert validate_response(value,ctx)
     value['proposals'][1]['instances']=['a']
     with pytest.raises(ValueError,match='对象'):validate_response(value,ctx)
+
+def test_source_bound_additions_and_application_explanation():
+    from astralogue.audit.protocol import validate_response
+    from test_audit import response,context
+    ctx=context();ctx['evidence']['source']['raw']='来源中的准确句子。'
+    value=response();p=value['proposals'][0];p['explanation']='补齐有来源的遗漏，说明不是台词。'
+    p['additions']=[{'speaker':'旁白','text':'来源中的准确句子。','evidence':['source']}]
+    assert validate_response(value,ctx)
+    p['additions'][0]['text']='模型编造的句子。'
+    with pytest.raises(ValueError,match='原文'):validate_response(value,ctx)
+    p['additions'][0].update(text='来源中的准确句子。',evidence=['human_direction'])
+    ctx['evidence']['human_direction']={'raw':'来源中的准确句子。'}
+    with pytest.raises(ValueError,match='评论'):validate_response(value,ctx)

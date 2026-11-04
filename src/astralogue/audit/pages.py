@@ -117,7 +117,35 @@ def detail_page(store,pid,token,reviewer,context_count=3):
     content+='<div class="point"><strong>'+('这里改为一个可选分支' if op=='move_to_optional_interaction' else v.OPS.get(op,'待补全的修改位置'))+'</strong><p>'+v.esc(v.proposed_explanation(p))+'</p>'
     phases=v.phase_candidates(p)
     if phases:content+='<span class="pill">所属小节：'+v.esc(' / '.join(s.get('title','待命名') for _,s in phases))+'</span>'
-    content+='</div><div class="label">'+('分支内容（原文保留）' if op=='move_to_optional_interaction' else '要审核的具体内容')+'</div><div class="branch">'+v.body(p)+'</div>'
+    current_options=[]
+    for instance in v.bindings(p).values():
+        if instance.get('kind')=='choice':
+            for edge in instance.get('outgoing',[]):
+                if edge.get('kind')=='option' and v.text(edge.get('option_text')):current_options.append({'label':v.text(edge['option_text']),'detail':'已有选项'})
+    live_path=store.setting('publication_pack')
+    if live_path:
+        from pathlib import Path
+        from astralogue.storypack import StoryPack
+        try:
+            with StoryPack(Path(live_path)) as live:
+                selected_nodes={i.get('node') for i in v.selected(p)}
+                scene_ids={scene.get('id',key) for key,scene in phases}
+                for choice_row in live.con.execute("SELECT id,data FROM nodes WHERE kind='choice'"):
+                    data=json.loads(choice_row['data']);edges=live.edges(choice_row['id'])
+                    if data.get('scene_id') in scene_ids or any(e.target in selected_nodes for e in edges):
+                        for edge in edges:
+                            if edge.kind=='option':current_options.append({'label':live.text(edge.text,'CHS',edge.value),'detail':'当前游玩包 · '+('进入本段' if edge.target in selected_nodes else '其他入口')})
+        except (OSError,ValueError):pass
+    content+='</div>'+v.option_preview(p,current_options)
+    rationale=suggestion.get('rationale','')
+    explanation=suggestion.get('explanation') or (rationale if any('\u4e00'<=c<='\u9fff' for c in rationale) else '')
+    if suggestion.get('additions'):
+        content+='<section class="card"><h3>拟补入的来源原文（尚未编译）</h3>'
+        for addition in suggestion['additions']:
+            content+=v.line(addition['speaker'],addition['text'])+'<p>来源：'+v.esc(' / '.join(addition['evidence']))+'</p>'
+        content+='<p class="notice">新增句子节点暂未接入发布器，批准也不会静默加入；需先完成来源与插入位置的编译支持。</p></section>'
+    if explanation:content+='<section class="card"><h3>申请说明（不是剧情正文）</h3><p style="white-space:pre-wrap">'+v.esc(explanation)+'</p></section>'
+    content+='<div class="label">'+('分支内容（原文保留）' if op=='move_to_optional_interaction' else '要审核的具体内容')+'</div><div class="branch">'+v.body(p)+'</div>'
     if op=='move_to_optional_interaction':content+='<div class="return">选择额外互动 → 阅读这段内容 → 返回本小节菜单；继续主线时跳过这段。</div>'
     content+='<div class="label">下几条剧情 / 主线继续位置</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in after) or '<p class="subtle">后续衔接尚未定位，或已到任务末尾。</p>')+'</section><aside><section class="card"><h3>你需要判断</h3><p>'+('这段是否应当由玩家主动选择，而不是自动混在主线里？' if op=='move_to_optional_interaction' else '这项建议是否与原作及已有来源相符？')+'</p><p class="source-note">来源：'+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+'</p>'
     wiki=ctx.get('evidence',{}).get('wiki',{})

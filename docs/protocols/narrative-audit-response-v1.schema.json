@@ -136,6 +136,37 @@
           },
           "rationale": {
             "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "additions": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "speaker",
+                "text",
+                "evidence"
+              ],
+              "properties": {
+                "speaker": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
           }
         }
       }

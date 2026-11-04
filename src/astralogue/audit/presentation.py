@@ -115,6 +115,7 @@ def location(payload,baseline):
 
 def reviewable(payload):
     items=selected(payload);op=payload['suggestion']['operation']
+    if payload['suggestion'].get('additions'):return False
     if not items or any(not i.get('node') or not text(i.get('text')) for i in items):return False
     if op=='move_to_optional_interaction':
         if any(re.search(r'(?:^|\n)\s*再次调查',text(i.get('text'))) for i in items):return False
@@ -156,3 +157,25 @@ def proposed_explanation(payload):
     if op=='split_dialogue_sequence' and payload['suggestion']['after'].get('segments'):return '当前一条台词混合了首次与再次调查的内容。按来源标记拆开，保留为独立访问内容；不会自动应用到剧情包。'
     if op=='attach_to_exploration_phase':return '把主动互动放入对应小节的探索入口；是否必经、何时可用仍待核实。'
     return '这项建议还没有形成可执行的具体分支计划，先作为研究结论记录。'
+
+def option_preview(payload,current=()):
+    """Show actual player-facing labels separately from branch dialogue."""
+    suggestion=payload['suggestion'];after=suggestion['after'];op=suggestion['operation'];labels=[]
+    if op=='move_to_optional_interaction':labels=[after.get('interaction') or '额外互动']
+    else:
+        options=after.get('options',after.get('choices',[]))
+        if isinstance(options,list):
+            for option in options:
+                label=option if isinstance(option,str) else option.get('label') or option.get('option_text') or option.get('text') if isinstance(option,dict) else ''
+                if text(label):labels.append(text(label))
+    result='<section class="card"><h3>玩家看到的分支选项</h3>'
+    if current:
+        result+='<div class="label">当前已有选项</div>'
+        for option in current:result+='<p><span class="pill">'+esc(option['label'])+'</span> <small>'+esc(option.get('detail',''))+'</small></p>'
+    if labels:
+        result+='<div class="label">建议选项文字（Reader 入口）</div>'
+        for label in labels:result+='<p class="selected" style="padding:12px">选择「'+esc(label)+'」 → 对应下方分支正文</p>'
+        if op=='move_to_optional_interaction':result+='<p>互动结束后返回菜单；另有「推进主线」入口。</p>'
+    elif op=='mark_as_required':result+='<p>此项只标记必经剧情，不新增玩家选项。</p>'
+    else:result+='<p class="notice">此申请未提供新增选项文字。不能把分支正文当作选项；若需要新增入口，请退回补充。</p>'
+    return result+'</section>'

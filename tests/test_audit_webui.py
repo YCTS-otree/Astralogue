@@ -121,3 +121,30 @@ def test_http_review_preserves_decisions_and_rejects_unbound_approval(tmp_path):
             assert s.db.execute('SELECT COUNT(*) FROM review_log').fetchone()[0]==5
     finally:
         server.shutdown(); server.server_close(); thread.join()
+
+def test_proposed_option_and_explanation_are_visible_separately(tmp_path):
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        p=json.loads(s.db.execute("SELECT payload FROM proposals WHERE id='earlier'").fetchone()[0])
+        p['suggestion']['after']['interaction']='调查画像'
+        p['suggestion']['explanation']='把此处改成主动调查；<script>不能执行</script>'
+        s.db.execute("UPDATE proposals SET payload=? WHERE id='earlier'",(json.dumps(p),));s.db.commit()
+        html=detail_page(s,'earlier','token','human')
+        assert '建议选项文字' in html and '选择「调查画像」' in html
+        assert '申请说明（不是剧情正文）' in html and '把此处改成主动调查' in html
+        assert '<script>不能执行</script>' not in html and '&lt;script&gt;不能执行' in html
+
+def test_current_pack_options_do_not_replace_proposal_review_state(tmp_path):
+    from test_audit_cleanup import fixture
+    from astralogue.audit.cleanup import compile_cleanup
+    from astralogue.compiler import compile_story
+    b,patch=fixture();pack=tmp_path/'p.storypack';compile_story(compile_cleanup(b,[patch]),pack)
+    path=tmp_path/'audit.sqlite';seed(path)
+    with AuditStore(path) as s:
+        s.setting('publication_pack',str(pack))
+        p=json.loads(s.db.execute("SELECT payload FROM proposals WHERE id='earlier'").fetchone()[0])
+        p['context']['scenes']['p']['id']='phase'
+        s.db.execute("UPDATE proposals SET payload=? WHERE id='earlier'",(json.dumps(p),));s.db.commit()
+        html=detail_page(s,'earlier','token','human')
+        assert '当前已有选项' in html and '额外聊天' in html and '推进主线' in html
+        assert 'value="approve"' in html
