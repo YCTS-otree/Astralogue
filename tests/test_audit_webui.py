@@ -102,5 +102,19 @@ def test_http_review_preserves_decisions_and_rejects_unbound_approval(tmp_path):
         with AuditStore(path) as s:
             assert s.db.execute("SELECT status FROM proposals WHERE id='research'").fetchone()[0] == 'acknowledged'
             assert s.db.execute('SELECT COUNT(*) FROM review_log').fetchone()[0] == 1
+        def bulk(ids, action):
+            values=[('csrf',token),('reviewer','批量测试'),('action',action)]+[('ids',pid) for pid in ids]
+            return urllib.request.urlopen(urllib.request.Request(base,data=urllib.parse.urlencode(values).encode()))
+        with pytest.raises(urllib.error.HTTPError) as error:bulk(['earlier','research'],'approve')
+        assert error.value.code==400
+        with AuditStore(path) as s:
+            assert s.db.execute("SELECT status FROM proposals WHERE id='earlier'").fetchone()[0]=='pending'
+        bulk(['earlier','later'],'approve').close()
+        with AuditStore(path) as s:
+            assert s.db.execute("SELECT COUNT(*) FROM proposals WHERE status='approved'").fetchone()[0]==2
+        bulk(['earlier','later'],'reject').close()
+        with AuditStore(path) as s:
+            assert s.db.execute("SELECT COUNT(*) FROM proposals WHERE status='rejected'").fetchone()[0]==2
+            assert s.db.execute('SELECT COUNT(*) FROM review_log').fetchone()[0]==5
     finally:
         server.shutdown(); server.server_close(); thread.join()

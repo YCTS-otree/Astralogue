@@ -22,7 +22,7 @@ def make_server(path, port=8340):
             raw = body.encode('utf8')
             self.send_response(status)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+            self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.end_headers()
@@ -59,18 +59,22 @@ def make_server(path, port=8340):
                 if not secrets.compare_digest(data.get('csrf', [''])[0], token):
                     self.send(403, 'Invalid CSRF token')
                     return
-                pid, action, reviewer = data['id'][0], data['action'][0], data['reviewer'][0]
+                ids = list(dict.fromkeys(data.get('ids', data.get('id', []))))
+                if not ids or len(ids)>40:raise ValueError('请选择 1–40 项')
+                pid, action, reviewer = ids[0], data['action'][0], data['reviewer'][0]
+                if len(ids)>1 and action not in {'approve','reject'}:raise ValueError('不支持的批量操作')
                 suggestion = json.loads(data['suggestion'][0]) if action == 'edit' else None
                 with AuditStore(path) as store:
-                    current = next((r for r in ordered(store) if r['row']['id'] == pid), None)
-                    if not current:
-                        raise ValueError('未找到这份提案')
-                    if action == 'approve' and not current['ready']:
-                        raise ValueError('这项尚未绑定完整的具体修改位置，请暂缓或记为已阅。')
-                    review(store, pid, action, reviewer, suggestion)
+                    rows={r['row']['id']:r for r in ordered(store)}
+                    for selected_id in ids:
+                        current=rows.get(selected_id)
+                        if not current:raise ValueError('未找到提案')
+                        if action=='approve' and not current['ready']:raise ValueError('所选项包含尚无具体修改位置的提案；本批次未保存。')
+                    with store.db:
+                        for selected_id in ids:review(store, selected_id, action, reviewer, suggestion)
                     store.setting('webui_reviewer', reviewer)
                 self.send_response(303)
-                self.send_header('Location', '/?id=' + urllib.parse.quote(pid, safe=''))
+                self.send_header('Location', ('/' if 'ids' in data else '/?id=' + urllib.parse.quote(pid, safe='')))
                 self.end_headers()
             except (ValueError, KeyError) as error:
                 self.send(400, page('<h1>未保存这次操作</h1><p>' + esc(error) + '</p><a href="/">返回列表</a>'))

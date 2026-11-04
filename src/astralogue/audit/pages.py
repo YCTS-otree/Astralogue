@@ -42,6 +42,8 @@ def list_page(store,query):
     visible=[r for r in rows if r['ready']==(tab!='research') and (status=='all' or r['row']['status']=='pending')]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
+    token=store.setting('webui_csrf') or ''
+    content+='<form method="post"><input type="hidden" name="csrf" value="'+v.esc(token)+'"><fieldset><legend>多选审核（本页）</legend><label>审核人 <input name="reviewer" required value="'+v.esc(store.setting('webui_reviewer') or '')+'"></label><label><input type="checkbox" onclick="this.form.querySelectorAll(\'input[name=ids]\').forEach(x=>x.checked=this.checked)">全选本页</label><button name="action" value="approve">通过所选</button><button name="action" value="reject">驳回所选</button></fieldset>'
     group=None
     for item in visible[offset:offset+40]:
         p=item['payload'];loc=item['location'];ctx=p['context'];key=(item['task'],loc['section'])
@@ -51,8 +53,9 @@ def list_page(store,query):
         preview=next((v.text(i.get('text')) for i in v.selected(p) if v.text(i.get('text'))),'需要补充具体剧情位置')
         if '{{' in preview:preview=loc['label']
         position='当前阅读路径第 '+str(loc['path_order']+1)+' 条' if loc['path_order'] is not None else '按来源小节位置排列；执行位置待核实'
-        content+='<article class="proposal"><div><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
+        content+='<article class="proposal"><div><label><input type="checkbox" name="ids" value="'+v.esc(item['row']['id'])+'">选择此项</label><h3><a href="/?id='+item['row']['id']+'">'+v.esc(loc['label'])+'</a></h3><div>'+v.esc(v.OPS.get(p['suggestion']['operation'],'待核实修改'))+'</div><p class="preview">'+v.esc(preview[:100])+('…' if len(preview)>100 else '')+'</p><small class="subtle">'+v.esc(position)+' · '+v.esc(v.SOURCE.get(p.get('origin'),'模型建议'))+' · '+str(len(p['suggestion']['instances']))+' 个引用片段</small></div><div><span class="pill">'+v.esc(v.STATUS.get(item['row']['status'],'待处理'))+'</span></div></article>'
     if group:content+='</section>'
+    content+='</form>'
     if not visible:content+='<div class="card">这一组暂时没有待处理项目，可以切换分类或查看已处理记录。</div>'
     content+='<nav class="nav"><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(max(0,offset-40))+'">上一页</a><span>共 '+str(len(visible))+' 项</span><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(offset+40)+'">下一页</a></nav>'
     return page(content+'<details><summary>审计进度与技术统计</summary><pre>'+v.esc(json.dumps(store.report(),ensure_ascii=False,indent=2))+'</pre></details>')
