@@ -12,13 +12,13 @@ h1{font-size:28px;line-height:1.4}h2{font-size:21px}h3{font-size:18px}.card,.sce
 .stats>div{flex:1;min-width:160px;background:white;border:1px solid #dfe5ee;border-radius:12px;padding:16px}.stats strong{font-size:27px;display:block}
 .proposal{display:grid;grid-template-columns:1fr auto;gap:16px;padding:18px 0;border-top:1px solid #e3e8f0}.proposal h3{margin:0}.preview{font-size:14px;color:#69758b}
 .pill{display:inline-block;font-size:13px;padding:4px 12px;background:#eaf0ff;color:#3458aa;border-radius:20px}
-.review-grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px}.label{font-size:14px;font-weight:700;color:#5e6c83;margin:22px 0 12px}
+.review-grid>aside{align-self:start;position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto}.review-grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px}.label{font-size:14px;font-weight:700;color:#5e6c83;margin:22px 0 12px}
 .utterance{padding:12px 18px;margin:10px 0;background:#f8f9fc;border-left:3px solid #dce3ee;border-radius:0 9px 9px 0}.utterance p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px}.speaker{font-weight:700;color:#425778;font-size:14px}.selected{background:#edf3ff;border-color:#4b70d7}
 .point{padding:20px;border:2px dashed #7c96df;background:#f2f5ff;border-radius:12px;margin:22px 0}.point strong{font-size:18px}.branch{margin:18px 0 18px 18px;border-left:3px solid #7c96df;padding-left:18px}.return{padding:12px;border-radius:8px;background:#eaf6f1;color:#356456;font-size:14px}
 .notice{padding:14px;background:#fff4da;color:#75541c;border-radius:9px}.stage{font-style:italic;color:#718099;padding:8px}.source-note{font-size:14px}
 details{margin:18px 0}summary{cursor:pointer;color:#5f6f88}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf0f5;padding:18px;font-size:13px}
-input,textarea,button{font:inherit;padding:10px;border:1px solid #cbd4e2;border-radius:7px}textarea{width:100%;min-height:240px}button{background:white;color:#263750;cursor:pointer}.primary{background:#345fe0;color:white;border-color:#345fe0}.actions{margin-top:18px}
-@media(max-width:820px){.review-grid{grid-template-columns:1fr}.shell{padding:16px}.proposal{grid-template-columns:1fr}aside{order:-1}h1{font-size:24px}}
+input,textarea,button{font:inherit;padding:10px;border:1px solid #cbd4e2;border-radius:7px}textarea{width:100%;min-height:240px}button{background:white;color:#263750;cursor:pointer}button:disabled{background:#e4e7ed!important;color:#808a99!important;border-color:#cdd3dc!important;cursor:default}.primary{background:#345fe0;color:white;border-color:#345fe0}.actions{margin-top:18px}
+@media(max-width:820px){.review-grid{grid-template-columns:1fr}.shell{padding:16px}.proposal{grid-template-columns:1fr}aside{order:-1;position:static!important;max-height:none!important}h1{font-size:24px}}
 '''
 
 
@@ -31,14 +31,14 @@ FEEDBACK = """
  box.querySelector('button').onclick=()=>box.hidden=true;
  const saved=sessionStorage.getItem('audit-review-feedback');if(saved){sessionStorage.removeItem('audit-review-feedback');notify(saved);}
  document.querySelectorAll('form[method="post"]').forEach(form=>form.addEventListener('submit',async event=>{
-  event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);
-  const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);notify('正在提交，请稍候…');
+  event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);if(['request_changes','research_approve'].includes(data.get('action'))&&!String(data.get('comment')||'').trim()){notify('请填写评论，告知具体修改方向。',true);return;}
+  const buttons=[...form.querySelectorAll('button')].map(b=>[b,b.disabled]);buttons.forEach(([b])=>b.disabled=true);notify('正在提交，请稍候…');
   try{
    const response=await fetch(form.action||location.href,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(data)});
    const result=await response.json();if(!response.ok)throw new Error(result.message||'提交失败，未保存审核操作。');
    sessionStorage.setItem('audit-review-feedback',result.message);location.reload();
   }catch(error){notify(error.message==='Failed to fetch'?'网络连接失败，提交结果尚未确认，请检查记录后再重试。':error.message,true);}
-  finally{buttons.forEach(b=>b.disabled=false);}
+  finally{buttons.forEach(([b,disabled])=>b.disabled=disabled);}
  }));
 })();
 </script>
@@ -62,8 +62,8 @@ def list_page(store,query):
     rows=ordered(store);tab=query.get('tab',['changes'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
     for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
-    content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    visible=[r for r in rows if r['ready']==(tab!='research') and (status=='all' or r['row']['status']=='pending')]
+    content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
+    visible=[r for r in rows if r['ready']==(tab!='research') and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
     token=store.setting('webui_csrf') or ''
@@ -84,13 +84,14 @@ def list_page(store,query):
     content+='<nav class="nav"><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(max(0,offset-40))+'">上一页</a><span>共 '+str(len(visible))+' 项</span><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(offset+40)+'">下一页</a></nav>'
     return page(content+'<details><summary>审计进度与技术统计</summary><pre>'+v.esc(json.dumps(store.report(),ensure_ascii=False,indent=2))+'</pre></details>')
 
-def detail_page(store,pid,token,reviewer):
+def detail_page(store,pid,token,reviewer,context_count=3):
     rows=ordered(store);item=next((r for r in rows if r['row']['id']==pid),None)
     if not item:return None
     row=item['row'];p=item['payload'];ctx=p['context'];suggestion=p['suggestion'];loc=item['location'];op=suggestion['operation'];ready=item['ready']
-    before,after,contiguous=v.windows(p,baseline(store))
+    before,after,contiguous=v.windows(p,baseline(store),context_count)
     content='<a href="/?tab='+('changes' if ready else 'research')+'">← 返回剧情列表</a><div class="crumb">'+v.esc(ctx.get('chapter','未归属章节'))+' › '+v.esc(item['task'])+' › '+v.esc(loc['section'])+'</div><h1>'+v.esc(loc['label'])+'</h1><div class="toolbar"><span>'+v.esc(v.OPS.get(op,'待核实修改'))+'</span><span class="pill">'+v.esc(v.STATUS.get(row['status'],'待处理'))+'</span></div>'
     if not ready:content+='<p class="notice">这项是研究结论或尚未定位的片段，还不能直接改变播放。请先补充具体台词与位置，不需要审批笼统描述。</p>'
+    content+='<nav class="nav"><a href="/?id='+pid+'&context='+str(min(100,context_count+5))+'">向前／向后各多加载 5 条剧情</a><span>当前前后各 '+str(context_count)+' 条，最多 100 条；沿当前已记录路径展示</span></nav>'
     content+='<div class="review-grid"><section><div class="label">上几条剧情</div>'+(''.join(v.line(r.get('speaker'),r.get('text')) for r in before) or '<p class="subtle">上文尚未定位，或已到任务开头。</p>')
     content+='<div class="point"><strong>'+('这里改为一个可选分支' if op=='move_to_optional_interaction' else v.OPS.get(op,'待补全的修改位置'))+'</strong><p>'+v.esc(v.proposed_explanation(p))+'</p>'
     phases=v.phase_candidates(p)
@@ -104,9 +105,31 @@ def detail_page(store,pid,token,reviewer):
     content+='<p class="source-note">原游戏触发条件仍待核实。批准的是文字阅读安排。</p>'
     if suggestion['conflicts']:content+='<p class="notice">有 '+str(len(suggestion['conflicts']))+' 项冲突，无法判断时请暂缓。</p>'
     content+='</section></aside></div><section class="card"><h2>'+('处理这项修改' if ready else '处理研究结论')+'</h2><p class="subtle">决定单独保存，重编译后才影响播放，不会立即改写存档。</p><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" placeholder="你的称呼，只需填一次" required></label><div class="actions">'
-    if ready:content+='<button class="primary" name="action" value="approve">'+('批准改为可选互动' if op=='move_to_optional_interaction' else '认可这项标注')+'</button>'
-    else:content+='<button class="primary" name="action" value="acknowledge">记为已阅，不应用修改</button>'
-    content+='<button name="action" value="defer">暂缓 / 退回补充</button><button name="action" value="reject">驳回建议</button></div></form></section>'
+    state=row['status'];locked=state in {'approved','rejected','awaiting_revision'}
+    labels={'approved':'已批准','rejected':'已驳回','awaiting_revision':'等待修改'}
+    if locked:
+        content+='<button disabled>'+labels[state]+'</button>'
+        if state=='awaiting_revision':content+='<button name="action" value="request_changes">补充意见并重新提交</button>'
+    else:
+        if ready:content+='<button class="primary" name="action" value="approve">批准</button><button name="action" value="request_changes">需要修改（提交评论）</button>'
+        else:content+='<button class="primary" name="action" value="research_approve">批准研究方向（提交评论）</button>'
+        content+='<button name="action" value="reject">驳回</button>'
+    content+='</div><label>判别模型 <select name="provider"><option value="local">本地离线模型（默认，无 API 费用）</option><option value="deepseek">DeepSeek v41f · 低推理（累计预算 5 元）</option></select></label><label>评论 / 修改方向（需要修改或批准研究方向时必填）<textarea name="comment" maxlength="12000" placeholder="请说明要改哪里、如何调整，以及依据。"></textarea></label></form></section>'
+    comments=list(store.db.execute('SELECT c.*,j.status AS job_status,j.error AS job_error FROM review_comments c LEFT JOIN jobs j ON j.id=c.job WHERE c.proposal=? ORDER BY c.id',(pid,)))
+    if comments:
+        content+='<section class="card"><h2>人工评论与模型修订进度</h2>'
+        for comment in comments:
+            status={None:'人工评论已保存（未调用模型）','pending':'排队中','running':'模型判别中','done':'模型已处理，请查看下方新提案','failed':'模型处理失败，原建议未自动应用'}.get(comment['job_status'],'等待处理')
+            content+='<h3>'+v.esc(comment['reviewer'])+'</h3><p>'+v.esc(comment['comment'])+'</p><p>'+status+'</p>'
+            if comment['job']:
+                job=store.db.execute('SELECT context FROM jobs WHERE id=?',(comment['job'],)).fetchone()
+                provider=json.loads(job[0]).get('feedback_provider','local') if job else 'local'
+                content+='<p>使用模型：'+('DeepSeek v41f · 低推理' if provider=='deepseek' else '本地离线模型')+'</p>'
+            if comment['job_error']:content+='<p class="notice">'+v.esc(comment['job_error'])+'</p>'
+            children=list(store.db.execute('SELECT id FROM proposals WHERE job=?',(comment['job'],)))
+            if comment['job_status']=='done' and not children:content+='<p>模型没有形成可执行的具体修改；需要补充证据或方向。</p>'
+            for child in children:content+='<a href="/?id='+child['id']+'">查看模型修订提案 →</a><br>'
+        content+='</section>'
     content+='<details><summary>技术详情：原始模型意见与 JSON（普通审核无需展开）</summary><pre>'+v.esc(json.dumps(p,ensure_ascii=False,indent=2))+'</pre><form method="post"><input type="hidden" name="csrf" value="'+token+'"><input type="hidden" name="id" value="'+pid+'"><input type="hidden" name="action" value="edit"><label>审核人 <input name="reviewer" value="'+v.esc(reviewer)+'" required></label><textarea name="suggestion">'+v.esc(json.dumps(suggestion,ensure_ascii=False,indent=2))+'</textarea><button>保存高级修改，重新审核</button></form></details>'
     peers=[r for r in rows if r['ready']==ready];index=next(i for i,r in enumerate(peers) if r['row']['id']==pid);content+='<nav class="nav">'
     if index:content+='<a href="/?id='+peers[index-1]['row']['id']+'">← 上一片段</a>'

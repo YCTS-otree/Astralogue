@@ -64,7 +64,7 @@ def test_details_show_previous_branch_body_and_shared_continuation(tmp_path):
         assert 'value="approve"' in visible
         research = detail_page(s, 'research', 'token', '')
         assert 'value="approve"' not in research
-        assert 'value="acknowledge"' in research
+        assert 'value="research_approve"' in research
 
 
 def test_partial_node_binding_never_presented_as_complete_span():
