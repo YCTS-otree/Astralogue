@@ -17,7 +17,7 @@ h1{font-size:28px;line-height:1.4}h2{font-size:21px}h3{font-size:18px}.card,.sce
 .point{padding:20px;border:2px dashed #7c96df;background:#f2f5ff;border-radius:12px;margin:22px 0}.point strong{font-size:18px}.branch{margin:18px 0 18px 18px;border-left:3px solid #7c96df;padding-left:18px}.return{padding:12px;border-radius:8px;background:#eaf6f1;color:#356456;font-size:14px}
 .notice{padding:14px;background:#fff4da;color:#75541c;border-radius:9px}.stage{font-style:italic;color:#718099;padding:8px}.source-note{font-size:14px}
 details{margin:18px 0}summary{cursor:pointer;color:#5f6f88}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf0f5;padding:18px;font-size:13px}
-input,textarea,button{font:inherit;padding:10px;border:1px solid #cbd4e2;border-radius:7px}textarea{width:100%;min-height:240px}button{background:white;color:#263750;cursor:pointer}button:disabled{background:#e4e7ed!important;color:#808a99!important;border-color:#cdd3dc!important;cursor:default}.primary{background:#345fe0;color:white;border-color:#345fe0}.actions{margin-top:18px}
+select{font:inherit;padding:8px;max-width:100%;border:1px solid #cbd4e2;border-radius:7px}form label{max-width:100%}input,textarea,button{font:inherit;padding:10px;border:1px solid #cbd4e2;border-radius:7px}textarea{width:100%;min-height:240px}button{background:white;color:#263750;cursor:pointer}button:disabled{background:#e4e7ed!important;color:#808a99!important;border-color:#cdd3dc!important;cursor:default}.primary{background:#345fe0;color:white;border-color:#345fe0}.actions{margin-top:18px}
 @media(max-width:820px){.review-grid{grid-template-columns:1fr}.shell{padding:16px}.proposal{grid-template-columns:1fr}aside{order:-1;position:static!important;max-height:none!important}h1{font-size:24px}}
 '''
 
@@ -37,7 +37,7 @@ FEEDBACK = """
   if(state.children?.length&&sessionStorage.getItem(key)!==mark){sessionStorage.setItem(key,mark);notify('模型已重新提交 '+state.children.length+' 份申请，请再次审核。');const link=document.createElement('a');link.href='/?id='+encodeURIComponent(state.children[0]);link.textContent='查看新申请 →';box.querySelector('span').append(' ',link);}
  }catch(_){}},5000);
  document.querySelectorAll('form[method="post"]').forEach(form=>form.addEventListener('submit',async event=>{
-  event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);if(['request_changes','research_approve'].includes(data.get('action'))&&!String(data.get('comment')||'').trim()){notify('请填写评论，告知具体修改方向。',true);return;}
+  event.preventDefault();const submitter=event.submitter;const data=new FormData(form);if(submitter&&submitter.name)data.set(submitter.name,submitter.value);if(['request_changes','research_approve','source_model'].includes(data.get('action'))&&!String(data.get('comment')||'').trim()){notify('请填写评论，告知具体修改方向。',true);return;}
   const buttons=[...form.querySelectorAll('button')].map(b=>[b,b.disabled]);buttons.forEach(([b])=>b.disabled=true);notify('正在提交，请稍候…');
   try{
    const response=await fetch(form.action||location.href,{method:'POST',headers:{'Accept':'application/json'},body:new URLSearchParams(data)});
@@ -65,11 +65,15 @@ def ordered(store):
     return rows
 
 def list_page(store,query):
-    rows=ordered(store);tab=query.get('tab',['changes'])[0];status=query.get('status',['pending'])[0]
+    from .navigation import catalog,filter_form,filter_proposals,source_page,url
+    rows=ordered(store);units=catalog()
+    if query.get('view',[''])[0]=='source':return page(source_page(store,query,units,rows))
+    all_rows=rows;rows=filter_proposals(rows,query)
+    tab=query.get('tab',['all'])[0];status=query.get('status',['pending'])[0]
     content='<h1>按剧情顺序审核</h1><p class="subtle">章节 → 任务 → 小节 → 对话片段。按已知阅读路径与来源小节位置排列；未定位内容单独列出。</p><div class="stats">'
     for count,label in [(sum(r['ready'] for r in rows),'具体片段与修改'),(sum(not r['ready'] for r in rows),'研究结论 / 待定位'),(sum(r['row']['status']=='approved' for r in rows),'人工已批准'),(sum(r['row']['status']=='rejected' for r in rows),'人工已驳回')]:content+='<div><strong>'+str(count)+'</strong>'+label+'</div>'
-    content+='</div><nav class="nav"><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
-    visible=[r for r in rows if (tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
+    content+='</div>'+filter_form(query,units,all_rows)+'<nav class="nav"><a href="/?tab=all">全部申请</a><a href="/?tab=changes">具体修改</a><a href="/?tab=research">研究结论与待定位</a><a href="/?tab=revisions">模型返修申请</a><a href="/?tab='+v.esc(tab)+'&status=awaiting_revision">等待修改</a><a href="/?tab='+v.esc(tab)+'&status=all">包含已处理项目</a></nav>'
+    visible=[r for r in rows if (tab=='all' or tab=='revisions' and r['payload']['context'].get('parent_proposal') or tab!='revisions' and r['ready']==(tab!='research')) and (status=='all' or r['row']['status']==status)]
     try:offset=max(0,int(query.get('offset',['0'])[0]))
     except ValueError:offset=0
     token=store.setting('webui_csrf') or ''
@@ -89,6 +93,16 @@ def list_page(store,query):
     content+='</form>'
     if not visible:content+='<div class="card">这一组暂时没有待处理项目，可以切换分类或查看已处理记录。</div>'
     content+='<nav class="nav"><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(max(0,offset-40))+'">上一页</a><span>共 '+str(len(visible))+' 项</span><a href="/?tab='+v.esc(tab)+'&status='+v.esc(status)+'&offset='+str(offset+40)+'">下一页</a></nav>'
+    content+='<p><a href="'+v.esc(url(query,view='source',offset=0))+'">在原文中定位 / 没有申请时主动发起审查 →</a></p>'
+    import re
+    def preserve(match):
+        from urllib.parse import parse_qs,urlparse
+        target=match.group(1)
+        if target.startswith('/?tab='):
+            values={k:vals[0] for k,vals in parse_qs(urlparse(target).query).items()}
+            return 'href="'+v.esc(url(query,**values))+'"'
+        return match.group(0)
+    content=re.sub(r'href="([^"]+)"',preserve,content)
     return page(content+'<details><summary>审计进度与技术统计</summary><pre>'+v.esc(json.dumps(store.report(),ensure_ascii=False,indent=2))+'</pre></details>')
 
 def detail_page(store,pid,token,reviewer,context_count=3):

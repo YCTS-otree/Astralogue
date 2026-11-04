@@ -64,6 +64,16 @@ def make_server(path, port=8340):
                 if not secrets.compare_digest(data.get('csrf', [''])[0], token):
                     self.send(403, json.dumps({'message':'页面验证已失效，请刷新后重试。'},ensure_ascii=False), 'application/json; charset=utf-8')
                     return
+                if data.get('action',[''])[0] in {'source_parse','source_model'}:
+                    from .navigation import request_source
+                    with AuditStore(path) as store:
+                        result=request_source(store,data.get('source_id',[''])[0],data['action'][0],data.get('reviewer',[''])[0],data.get('comment',[''])[0],data.get('provider',['local'])[0])
+                        store.setting('webui_reviewer',data.get('reviewer',[''])[0])
+                    if 'application/json' in self.headers.get('Accept',''):
+                        self.send(200,json.dumps(result,ensure_ascii=False),'application/json; charset=utf-8')
+                    else:
+                        self.send_response(303);self.send_header('Location','/?id='+result['proposal']);self.end_headers()
+                    return
                 ids = list(dict.fromkeys(data.get('ids', data.get('id', []))))
                 if not ids or len(ids)>40:raise ValueError('请选择 1–40 项')
                 pid, action, reviewer = ids[0], data['action'][0], data['reviewer'][0]

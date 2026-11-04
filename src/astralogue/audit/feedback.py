@@ -31,6 +31,8 @@ def submit_feedback(store,pid,action,reviewer,comment,provider="local"):
     row=store.db.execute('SELECT payload FROM proposals WHERE id=?',(pid,)).fetchone()
     if not row:raise ValueError('Unknown proposal')
     parent=json.loads(row[0]);context=deepcopy(parent['context'])
+    for key in ['requested_partitions','requested_proposal_count','supersedes_job','retry_of_job','revision_contract_version']:
+        context.pop(key,None)
     context['prior_results']=[]
     context['parent_suggestion']=deepcopy(parent['suggestion'])
     enrich_context(store,context)
