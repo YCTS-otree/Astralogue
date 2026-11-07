@@ -1,8 +1,13 @@
 # Astralogue — 星轨叙事引擎
 
+> 剧情文本取自游戏 **崩坏：星穹铁道** 以及 **BWIKI**（遵循 [**CC BY-NC-SA 4.0 协议**](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)）。
+> 仅供玩家自行回顾剧情，禁止商业化使用。
+>
+> 引擎代码使用 MIT 许可证；上述剧情文本的来源、协议与用途说明单独适用。
+
 离线交互式剧情引擎，Python 3.11+，Windows / Linux，CLI 使用 Typer + Rich。
 构建阶段将游戏数据解析为自己的 SQLite `.storypack`；播放器只读该包。
-当前版本 **1.15.0**，StoryPack Schema **1**。
+当前版本 **1.24.1**，StoryPack Schema **1**。
 
 直接打开即可注册或登录本地账号：
 
